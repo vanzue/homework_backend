@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, HttpUrl
 from enum import Enum
 from datetime import datetime
+from typing import Optional, Union
 from typing import Optional, List
 
 class TaskStatus(str, Enum):
@@ -45,6 +46,10 @@ class TaskCreateResponse(BaseModel):
     task: Task
     message: str
 
+class CommonResponse(BaseModel):
+    code: int
+    data: Optional[Union[dict, bool]]
+    message: str
 class TaskProgress(BaseModel):
     task_id: int
     completed_units: int
