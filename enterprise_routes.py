@@ -1,7 +1,7 @@
-from fastapi import APIRouter, File, UploadFile, Query
+from fastapi import APIRouter, File, UploadFile, Query, HTTPException
 from typing import List, Optional
 from datetime import datetime
-from schemas import Task, TaskStatus, TaskType
+from schemas import Task, TaskStatus, TaskType, TaskCreate, TaskCreateResponse
 
 router = APIRouter()
 
@@ -27,9 +27,25 @@ async def update_enterprise_profile():
 async def batch_upload_tasks(files: List[UploadFile] = File(...)):
     return {"message": f"{len(files)} tasks uploaded successfully"}
 
-@router.post("/api/task/create")
-async def create_task():
-    return {"message": "Task created successfully"}
+@router.post("/api/task/create", response_model=TaskCreateResponse)
+async def create_task(task: TaskCreate):
+    # 这里应该是将任务保存到数据库的逻辑
+    # 为了演示，我们创建一个模拟的任务对象
+    new_task = Task(
+        id=1,  # 在实际应用中，这应该是由数据库生成的
+        **task.dict(),
+        status=TaskStatus.PENDING,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+        completed_units=0
+    )
+
+    # 在实际应用中，这里应该有错误处理逻辑
+    
+    return TaskCreateResponse(
+        task=new_task,
+        message="Task created successfully"
+    )
 
 @router.get("/api/task/list", response_model=List[Task])
 async def list_tasks(

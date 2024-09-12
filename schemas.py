@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from enum import Enum
 from datetime import datetime
 from typing import Optional
@@ -16,15 +16,24 @@ class TaskType(str, Enum):
     CONTENT_MODERATION = "content_moderation"
     TRANSLATION = "translation"
 
-class Task(BaseModel):
-    id: int
+class TaskBase(BaseModel):
     title: str
     description: str
     type: TaskType
-    status: TaskStatus
-    created_at: datetime
-    updated_at: datetime
     deadline: Optional[datetime]
     reward_per_unit: float
     total_units: int
-    completed_units: int
+
+class TaskCreate(TaskBase):
+    pass
+
+class Task(TaskBase):
+    id: int
+    status: TaskStatus
+    created_at: datetime
+    updated_at: datetime
+    completed_units: int = 0
+
+class TaskCreateResponse(BaseModel):
+    task: Task
+    message: str
