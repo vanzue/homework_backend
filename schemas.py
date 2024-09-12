@@ -1,7 +1,7 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl
 from enum import Enum
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 class TaskStatus(str, Enum):
     PENDING = "pending"
@@ -16,13 +16,20 @@ class TaskType(str, Enum):
     CONTENT_MODERATION = "content_moderation"
     TRANSLATION = "translation"
 
+class TaskDifficulty(str, Enum):
+    EASY = "easy"
+    MEDIUM = "medium"
+    HARD = "hard"
+
 class TaskBase(BaseModel):
     title: str
     description: str
     type: TaskType
+    difficulty: TaskDifficulty
     deadline: Optional[datetime]
     reward_per_unit: float
     total_units: int
+    resources: List[HttpUrl]  # Added resources field
 
 class TaskCreate(TaskBase):
     pass
@@ -37,3 +44,10 @@ class Task(TaskBase):
 class TaskCreateResponse(BaseModel):
     task: Task
     message: str
+
+class TaskProgress(BaseModel):
+    task_id: int
+    completed_units: int
+    total_units: int
+    progress_percentage: float
+    estimated_completion_time: Optional[datetime]
