@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 from enum import Enum
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 
 class TaskStatus(str, Enum):
     PENDING = "pending"
@@ -36,4 +36,9 @@ class Task(TaskBase):
 
 class TaskCreateResponse(BaseModel):
     task: Task
+    message: str
+
+class CommonResponse(BaseModel):
+    code: int
+    data: Optional[Union[dict, bool]]
     message: str
