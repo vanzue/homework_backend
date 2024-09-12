@@ -1,3 +1,5 @@
 fastapi
 uvicorn
 python-multipart
+gunicorn
+# Add any other dependencies your project needs
