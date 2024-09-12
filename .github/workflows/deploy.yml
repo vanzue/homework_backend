@@ -33,7 +33,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ secrets.AZURE_CONTAINER_REGISTRY }}/fastapi-app:${{ github.sha }}
+          tags: ${{ secrets.AZURE_CONTAINER_REGISTRY }}/hopework
 
       - name: Create Azure App Service Plan
         run: |
@@ -46,11 +46,11 @@ jobs:
         run: |
           az webapp create --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
                            --plan ${{ secrets.AZURE_APP_PLAN }} \
-                           --name ${{ secrets.AZURE_WEBAPP_NAME }} \
-                           --deployment-container-image-name ${{ secrets.AZURE_CONTAINER_REGISTRY }}/fastapi-app:${{ github.sha }}
+                           --name hopeworkapi \
+                           --deployment-container-image-name ${{ secrets.AZURE_CONTAINER_REGISTRY }}/hopework
 
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v2
         with:
-          app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
-          images: "${{ secrets.AZURE_CONTAINER_REGISTRY }}/fastapi-app:${{ github.sha }}"
+          app-name: hopeworkapi
+          images: "${{ secrets.AZURE_CONTAINER_REGISTRY }}/hopework"
