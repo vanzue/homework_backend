@@ -6,6 +6,7 @@ on:
       - main # or your default branch name
 
 jobs:
+  environment: hopework
   build-and-deploy:
     runs-on: ubuntu-latest
 
