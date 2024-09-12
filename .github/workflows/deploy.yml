@@ -49,6 +49,12 @@ jobs:
                            --name hopeworkapi \
                            --deployment-container-image-name ${{ secrets.AZURE_CONTAINER_REGISTRY }}/hopework
 
+      - name: Configure Web App Settings
+        run: |
+          az webapp config appsettings set --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
+                                           --name hopeworkapi \
+                                           --settings WEBSITES_PORT=8000
+
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v2
         with:
