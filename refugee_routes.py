@@ -1,16 +1,16 @@
 from fastapi import APIRouter, File, Query, UploadFile, HTTPException, Depends
 from auth_token import create_access_token, get_current_user
 from mock_data import get_mock_tasks
-from schemas import RegisterRefugeeTask, CommonResponse, TaskDifficulty, TaskStatus, TaskType
+from schemas import CommonResponseBool, RegisterRefugeeTask, TaskDifficulty, TaskStatus, TaskType, Task
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List
 from fastapi.security import OAuth2PasswordBearer
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # 账户管理
-@router.post("/api/refugee/register", response_model=CommonResponse)
+@router.post("/api/refugee/register", response_model=dict)
 async def register_refugee(refugee: RegisterRefugeeTask):
     try:
         # 这里应该有验证用户名是否已存在的逻辑
@@ -29,15 +29,11 @@ async def register_refugee(refugee: RegisterRefugeeTask):
             "register_time": datetime.now(),
         }
 
-        return CommonResponse(
-            code=1,
-            data=new_refugee,
-            message="Refugee registered successfully"
-        )
+        return new_refugee
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/api/refugee/login", response_model=CommonResponse)
+@router.post("/api/refugee/login", response_model=dict)
 async def login_refugee(username: str, password: str, language: Optional[str] = "en"):
     try:
         # 这里应该有验证用户名和密码的逻辑
@@ -52,23 +48,11 @@ async def login_refugee(username: str, password: str, language: Optional[str] = 
             "token_type": "bearer"
         }
 
-        # 多语言支持
-        messages = {
-            "en": "Refugee logged in successfully",
-            "zh": "难民登录成功",
-            "fr": "Réfugié connecté avec succès",
-            # 可以添加更多语言
-        }
-
-        return CommonResponse(
-            code=1,
-            data=login_data,
-            message=messages.get(language, messages["en"])
-        )
+        return login_data
     except Exception as e:
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
-@router.post("/api/refugee/forgot-password", response_model=CommonResponse)
+@router.post("/api/refugee/forgot-password", response_model=CommonResponseBool)
 async def forgot_password(contact: str = Query(..., min_length=1), password: str = Query(..., min_length=1), contact_type: str = Query(..., min_length=1)):
     try:
         # 验证联系方式是否存在
@@ -83,15 +67,13 @@ async def forgot_password(contact: str = Query(..., min_length=1), password: str
 
         #这里进行更新数据库用户密码
 
-        return CommonResponse(
-            code=1,
-            data=True,
-            message="Password reset link sent successfully"
+        return CommonResponseBool(
+            result=True,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.put("/api/refugee/update-profile", response_model=CommonResponse)
+@router.put("/api/refugee/update-profile", response_model=dict)
 async def update_refugee_profile(
     userId: str = Depends(get_current_user),
     username: Optional[str] = None,
@@ -108,17 +90,13 @@ async def update_refugee_profile(
             "email": email
         }
 
-        return CommonResponse(
-            code=1,
-            data=updated_user,
-            message="Refugee profile updated successfully"
-        )
+        return updated_user
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # 任务浏览与申请
-@router.get("/api/task/browse", response_model=CommonResponse)
+@router.get("/api/task/browse", response_model=List[Task])
 async def browse_tasks(
     userId: str = Depends(get_current_user),
     task_type: Optional[TaskType] = Query(None, description="Filter tasks by type"),
@@ -151,15 +129,12 @@ async def browse_tasks(
         end = start + page_size
         paginated_tasks = tasks[start:end]
 
-        return CommonResponse(
-            code=1,
-            data=paginated_tasks,
-            message='Task list retrieved successfully'
-        )
+        return paginated_tasks
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/api/task/{task_id}/apply", response_model=CommonResponse)
+@router.post("/api/task/{task_id}/apply", response_model=CommonResponseBool)
 async def apply_for_task(task_id: int, userId: str = Depends(get_current_user)):
     try:
         # 这里应该是实际的数据库操作逻辑
@@ -180,10 +155,8 @@ async def apply_for_task(task_id: int, userId: str = Depends(get_current_user)):
         # 这里应该更新数据库中用户的任务列表
         # 为了演示，我们假设添加成功
         
-        return CommonResponse(
-            code=1,
-            data={"task_id": task_id},
-            message=f"Successfully applied for task {task_id}"
+        return CommonResponseBool(
+            result=True
         )
     except HTTPException as http_ex:
         raise http_ex
@@ -191,7 +164,7 @@ async def apply_for_task(task_id: int, userId: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 # 任务执行
-@router.get("/api/task/my-tasks", response_model=CommonResponse)
+@router.get("/api/task/my-tasks", response_model=List[Task])
 async def get_my_tasks(userId: str = Depends(get_current_user)):
     try:
         # 这里应该是实际的数据库操作逻辑
@@ -203,15 +176,11 @@ async def get_my_tasks(userId: str = Depends(get_current_user)):
         
         user_tasks = [task for task in mock_tasks if task.id in user_task_ids]
         
-        return CommonResponse(
-            code=1,
-            data=user_tasks,
-            message='User tasks retrieved successfully'
-        )
+        return user_tasks
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/api/task/{task_id}/submit", response_model=CommonResponse)
+@router.post("/api/task/{task_id}/submit", response_model=CommonResponseBool)
 async def submit_task(task_id: int, userId: str = Depends(get_current_user)):
     try:
         # 1. 检查任务是否存在
@@ -232,17 +201,15 @@ async def submit_task(task_id: int, userId: str = Depends(get_current_user)):
         task.status = TaskStatus.COMPLETED
         task.updated_at = datetime.now()
         
-        return CommonResponse(
-            code=1,
-            data={"task_id": task_id},
-            message=f"Task {task_id} submitted successfully."
+        return CommonResponseBool(
+            result=True
         )
     except HTTPException as http_ex:
         raise http_ex
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/api/task/{task_id}/feedback", response_model=CommonResponse)
+@router.get("/api/task/{task_id}/feedback", response_model=dict)
 async def get_task_feedback(task_id: int, userId: str = Depends(get_current_user)):
     try:
         # 1. 检查任务是否存在
@@ -262,22 +229,18 @@ async def get_task_feedback(task_id: int, userId: str = Depends(get_current_user
             "comments": "Great job!" if task.status == TaskStatus.COMPLETED else "Still under review.",
             "review_date": datetime.now().isoformat() if task.status == TaskStatus.COMPLETED else None
         }
-        
-        return CommonResponse(
-            code=1,
-            data={
-                "task_id": task_id,
-                "feedback": feedback
-            },
-            message="Task feedback retrieved successfully"
-        )
+        result_data = {
+            "task_id": task_id,
+            "feedback": feedback
+        }
+        return result_data
     except HTTPException as http_ex:
         raise http_ex
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 # 报酬结算
-@router.get("/api/reward/history", response_model=CommonResponse)
+@router.get("/api/reward/history", response_model=dict)
 async def get_reward_history(userId: str = Depends(get_current_user)):
     try:
         # 这里应该从数据库中获取用户的任务收入历史
@@ -298,19 +261,15 @@ async def get_reward_history(userId: str = Depends(get_current_user)):
         ]
         
         total_reward = sum(item["reward_amount"] for item in reward_history)
-        
-        return CommonResponse(
-            code=1,
-            data={
-                "reward_history": reward_history,
-                "total_reward": total_reward
-            },
-            message="Reward history retrieved successfully"
-        )
+        return_data = {
+            "reward_history": reward_history,
+            "total_reward": total_reward
+        }
+        return return_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/api/reward/withdraw", response_model=CommonResponse)
+@router.post("/api/reward/withdraw", response_model=dict)
 async def withdraw_reward(
     amount: float,
     payment_method: str,
@@ -328,24 +287,20 @@ async def withdraw_reward(
 
         # 这里应该检查用户的可用余额，并在数据库中记录提现请求
         # 为了演示，我们假设操作总是成功的
-
-        return CommonResponse(
-            code=1,
-            data={
-                "user_id": user_id,
-                "amount": amount,
-                "payment_method": payment_method,
-                "request_date": datetime.now().isoformat(),
-                "status": "Pending"
-            },
-            message="Withdrawal request submitted successfully"
-        )
+        return_data = {
+            "user_id": user_id,
+            "amount": amount,
+            "payment_method": payment_method,
+            "request_date": datetime.now().isoformat(),
+            "status": "Pending"
+        }
+        return return_data
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/api/reward/withdraw-status", response_model=CommonResponse)
+@router.get("/api/reward/withdraw-status", response_model=dict)
 async def get_withdraw_status(user_id: str = Depends(get_current_user)):
     try:
         # 这里应该从数据库中获取用户的提现记录
@@ -366,14 +321,10 @@ async def get_withdraw_status(user_id: str = Depends(get_current_user)):
                 "status": "Pending"
             }
         ]
-        
-        return CommonResponse(
-            code=1,
-            data={
-                "withdraw_history": withdraw_history,
-                "pending_withdrawals": [w for w in withdraw_history if w["status"] == "Pending"]
-            },
-            message="Withdrawal status and history retrieved successfully"
-        )
+        result_data = {
+            "withdraw_history": withdraw_history,
+            "pending_withdrawals": [w for w in withdraw_history if w["status"] == "Pending"]
+        }
+        return result_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

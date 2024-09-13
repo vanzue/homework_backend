@@ -47,9 +47,11 @@ class TaskCreateResponse(BaseModel):
     message: str
 
 class CommonResponse(BaseModel):
-    code: int
+    # code: int
     data: Optional[Union[Task, List[Task],dict, bool]]
-    message: str
+
+class CommonResponseBool(BaseModel):
+    result: bool
 class TaskProgress(BaseModel):
     task_id: int
     completed_units: int

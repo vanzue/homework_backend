@@ -1,7 +1,7 @@
 from fastapi import APIRouter, File, UploadFile, Query, HTTPException
 from typing import List, Optional
 from datetime import datetime
-from schemas import Task, TaskDifficulty, TaskStatus, TaskType, TaskCreate, TaskCreateResponse, TaskProgress, CommonResponse
+from schemas import CommonResponseBool, Task, TaskDifficulty, TaskStatus, TaskType, TaskCreate
 from mock_data import get_mock_tasks, get_mock_task_progress
 
 router = APIRouter()
@@ -28,7 +28,7 @@ async def update_enterprise_profile():
 async def batch_upload_tasks(files: List[UploadFile] = File(...)):
     return {"message": f"{len(files)} tasks uploaded successfully"}
 
-@router.post("/api/task/create", response_model=CommonResponse)
+@router.post("/api/task/create", response_model=dict)
 async def create_task(task: TaskCreate):
     new_task = Task(
         id=1,
@@ -44,13 +44,9 @@ async def create_task(task: TaskCreate):
         completed_units=350
     )
     
-    return CommonResponse(
-        code=1,
-        data=new_task,
-        message="Task created successfully"
-    )
+    return new_task
 
-@router.get("/api/task/list", response_model=CommonResponse)
+@router.get("/api/task/list", response_model=List[Task])
 async def list_tasks(
     status: Optional[TaskStatus] = Query(None),
     type: Optional[TaskType] = Query(None),
@@ -72,16 +68,12 @@ async def list_tasks(
         # 简单的分页逻辑
         start = (page - 1) * page_size
         end = start + page_size
-        return CommonResponse(
-            code=1,
-            data=tasks[start:end],
-            message="get Task List successfully"
-        )
+        return tasks[start:end]
     except Exception as e:
         # 如果发生错误，返回适当的错误响应
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/api/task/{task_id}/progress", response_model=CommonResponse) # type: ignore
+@router.get("/api/task/{task_id}/progress", response_model=dict) # type: ignore
 async def get_task_progress(task_id: int):
     try:
         # 这里应该有从数据库获取任务进度的逻辑
@@ -91,16 +83,12 @@ async def get_task_progress(task_id: int):
             "completion_percentage": 35.0,  # 实时进度
             "completed_tasks": 350  # 已完成任务数
         }
-        return CommonResponse(
-            code=1,
-            data=task_progress,
-            message=f"Progress for task {task_id} retrieved successfully"
-        )
+        return task_progress
     except Exception as e:
             # 如果发生错误，返回适当的错误响应
             raise HTTPException(status_code=500, detail=str(e))
 
-@router.put("/api/task/{task_id}/pause", response_model=CommonResponse)
+@router.put("/api/task/{task_id}/pause", response_model=CommonResponseBool)
 async def pause_task(task_id: int):
     try:
         # 这里应该是暂停任务的实际逻辑
@@ -108,16 +96,14 @@ async def pause_task(task_id: int):
         # 为了演示，我们假设任务总是能成功暂停
         is_paused = True
 
-        return CommonResponse(
-            code=1,
-            data=is_paused,
-            message=f"Task {task_id} paused successfully"
+        return CommonResponseBool(
+            result=is_paused,
         )
     except Exception as e:
         # 如果发生错误，返回适当的错误响应
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.delete("/api/task/{task_id}/cancel", response_model=CommonResponse)
+@router.delete("/api/task/{task_id}/cancel", response_model=CommonResponseBool)
 async def cancel_task(task_id: int):
     try:
         # 这里应该是取消任务的实际逻辑
@@ -125,16 +111,14 @@ async def cancel_task(task_id: int):
         # 为了演示，我们假设任务总是能成功取消
         is_cancelled = True
 
-        return CommonResponse(
-            code=1,
-            data=is_cancelled,
-            message=f"Task {task_id} cancelled successfully"
+        return CommonResponseBool(
+            result=is_cancelled,
         )
     except Exception as e:
         # 如果发生错误，返回适当的错误响应
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/api/task/{task_id}/review", response_model=CommonResponse)
+@router.post("/api/task/{task_id}/review", response_model=dict)
 async def review_task(task_id: int, review_data: dict):
     try:
         # 这里应该是审核任务的实际逻辑
@@ -153,22 +137,18 @@ async def review_task(task_id: int, review_data: dict):
             message = f"Task {task_id} reviewed but not accepted"
 
         # 这里应该更新数据库中的任务状态和审核信息
-
-        return CommonResponse(
-            code=1,
-            data={
-                "task_id": task_id,
-                "is_accepted": is_accepted,
-                "status": task_status,
-                "review_comment": review_comment
-            },
-            message=message
-        )
+        result_data = {
+            "task_id": task_id,
+            "is_accepted": is_accepted,
+            "status": task_status,
+            "review_comment": review_comment
+        }
+        return result_data
     except Exception as e:
         # 如果发生错误，返回适当的错误响应
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/api/task/{task_id}/feedback", response_model=CommonResponse)
+@router.post("/api/task/{task_id}/feedback", response_model=dict)
 async def provide_task_feedback(task_id: int, feedback: dict):
     try:
         # 从feedback字典中获取反馈信息和评分
@@ -177,16 +157,12 @@ async def provide_task_feedback(task_id: int, feedback: dict):
 
         # 这里应该是保存反馈到数据库的逻辑
         # 为了演示，我们假设保存总是成功的
-
-        return CommonResponse(
-            code=1,
-            data={
-                "task_id": task_id,
-                "rating": rating,
-                "comment": comment
-            },
-            message=f"Feedback for task {task_id} submitted successfully"
-        )
+        result_data = {
+            "task_id": task_id,
+            "rating": rating,
+            "comment": comment
+        }
+        return result_data
     except Exception as e:
         # 如果发生错误，返回适当的错误响应
         raise HTTPException(status_code=500, detail=str(e))
