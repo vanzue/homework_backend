@@ -1,5 +1,5 @@
 from fastapi import APIRouter, File, Query, UploadFile, HTTPException, Depends
-from authToken import create_access_token, get_current_user
+from auth_token import create_access_token, get_current_user
 from mock_data import get_mock_tasks
 from schemas import RegisterRefugeeTask, CommonResponse, TaskDifficulty, TaskStatus, TaskType
 from datetime import datetime, timedelta
