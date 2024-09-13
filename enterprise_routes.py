@@ -28,7 +28,7 @@ async def update_enterprise_profile():
 async def batch_upload_tasks(files: List[UploadFile] = File(...)):
     return {"message": f"{len(files)} tasks uploaded successfully"}
 
-@router.post("/api/task/create", response_model=TaskCreateResponse)
+@router.post("/api/task/create", response_model=CommonResponse)
 async def create_task(task: TaskCreate):
     new_task = Task(
         id=1,
@@ -44,12 +44,13 @@ async def create_task(task: TaskCreate):
         completed_units=350
     )
     
-    return TaskCreateResponse(
-        task=new_task,
+    return CommonResponse(
+        code=1,
+        data=new_task,
         message="Task created successfully"
     )
 
-@router.get("/api/task/list", response_model=List[Task])
+@router.get("/api/task/list", response_model=CommonResponse)
 async def list_tasks(
     status: Optional[TaskStatus] = Query(None),
     type: Optional[TaskType] = Query(None),
@@ -57,20 +58,28 @@ async def list_tasks(
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=100)
 ):
-    tasks = get_mock_tasks()
+    try:
+        tasks = get_mock_tasks()
 
-    # 根据查询参数筛选任务
-    if status:
-        tasks = [task for task in tasks if task.status == status]
-    if type:
-        tasks = [task for task in tasks if task.type == type]
-    if difficulty:
-        tasks = [task for task in tasks if task.difficulty == difficulty]
+        # 根据查询参数筛选任务
+        if status:
+            tasks = [task for task in tasks if task.status == status]
+        if type:
+            tasks = [task for task in tasks if task.type == type]
+        if difficulty:
+            tasks = [task for task in tasks if task.difficulty == difficulty]
 
-    # 简单的分页逻辑
-    start = (page - 1) * page_size
-    end = start + page_size
-    return tasks[start:end]
+        # 简单的分页逻辑
+        start = (page - 1) * page_size
+        end = start + page_size
+        return CommonResponse(
+            code=1,
+            data=tasks[start:end],
+            message="get Task List successfully"
+        )
+    except Exception as e:
+        # 如果发生错误，返回适当的错误响应
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/task/{task_id}/progress", response_model=CommonResponse) # type: ignore
 async def get_task_progress(task_id: int):
@@ -186,10 +195,6 @@ async def provide_task_feedback(task_id: int, feedback: dict):
 @router.post("/api/reward/set")
 async def set_reward():
     return {"message": "Reward set successfully"}
-
-@router.get("/api/reward/history")
-async def get_reward_history():
-    return {"message": "Reward history retrieved"}
 
 @router.post("/api/reward/pay")
 async def pay_reward():

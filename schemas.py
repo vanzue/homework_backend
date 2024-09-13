@@ -48,7 +48,7 @@ class TaskCreateResponse(BaseModel):
 
 class CommonResponse(BaseModel):
     code: int
-    data: Optional[Union[dict, bool]]
+    data: Optional[Union[Task, List[Task],dict, bool]]
     message: str
 class TaskProgress(BaseModel):
     task_id: int
@@ -56,3 +56,19 @@ class TaskProgress(BaseModel):
     total_units: int
     progress_percentage: float
     estimated_completion_time: Optional[datetime]
+
+class RefugeeTask(BaseModel):
+    id: int
+    username: str
+    phone: str
+    email: str
+    password:str
+    status: TaskStatus
+    created_at: datetime
+    updated_at: datetime
+
+class RegisterRefugeeTask(BaseModel):
+    username: str
+    phone: str
+    email: str
+
