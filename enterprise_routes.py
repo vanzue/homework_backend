@@ -1,7 +1,7 @@
 from fastapi import APIRouter, File, UploadFile, Query, HTTPException
 from typing import List, Optional
 from datetime import datetime
-from schemas import CommonResponseBool, Task, TaskDifficulty, TaskStatus, TaskType, TaskCreate
+from schemas import CommonResponseBool, Task, TaskCreateResponse, TaskDifficulty, TaskFeedbackResponse, TaskProgress, TaskReviewResponse, TaskStatus, TaskType, TaskCreate
 from mock_data import get_mock_tasks, get_mock_task_progress
 
 router = APIRouter()
@@ -28,7 +28,7 @@ async def update_enterprise_profile():
 async def batch_upload_tasks(files: List[UploadFile] = File(...)):
     return {"message": f"{len(files)} tasks uploaded successfully"}
 
-@router.post("/api/task/create", response_model=dict)
+@router.post("/api/task/create", response_model=Task)
 async def create_task(task: TaskCreate):
     new_task = Task(
         id=1,
@@ -73,16 +73,18 @@ async def list_tasks(
         # 如果发生错误，返回适当的错误响应
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/api/task/{task_id}/progress", response_model=dict) # type: ignore
+@router.get("/api/task/{task_id}/progress", response_model=TaskProgress) # type: ignore
 async def get_task_progress(task_id: int):
     try:
         # 这里应该有从数据库获取任务进度的逻辑
         # 为了演示，我们使用模拟数据
-        task_progress = {
-            "completed_jobs": 5, # 已完成的工作数量
-            "completion_percentage": 35.0,  # 实时进度
-            "completed_tasks": 350  # 已完成任务数
-        }
+        task_progress = TaskProgress(
+            task_id=task_id,
+            completed_units=350,
+            total_units=1000,  # Assuming total_units is 1000, adjust as needed
+            progress_percentage=35.0,
+            estimated_completion_time=None  # We don't have this information in the original data
+        )
         return task_progress
     except Exception as e:
             # 如果发生错误，返回适当的错误响应
@@ -118,7 +120,7 @@ async def cancel_task(task_id: int):
         # 如果发生错误，返回适当的错误响应
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/api/task/{task_id}/review", response_model=dict)
+@router.post("/api/task/{task_id}/review", response_model=TaskReviewResponse)
 async def review_task(task_id: int, review_data: dict):
     try:
         # 这里应该是审核任务的实际逻辑
@@ -137,18 +139,18 @@ async def review_task(task_id: int, review_data: dict):
             message = f"Task {task_id} reviewed but not accepted"
 
         # 这里应该更新数据库中的任务状态和审核信息
-        result_data = {
-            "task_id": task_id,
-            "is_accepted": is_accepted,
-            "status": task_status,
-            "review_comment": review_comment
-        }
+        result_data = TaskReviewResponse(
+            task_id=task_id,
+            is_accepted=is_accepted,
+            status=task_status,
+            review_comment=review_comment
+        )
         return result_data
     except Exception as e:
         # 如果发生错误，返回适当的错误响应
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/api/task/{task_id}/feedback", response_model=dict)
+@router.post("/api/task/{task_id}/feedback", response_model=TaskFeedbackResponse)
 async def provide_task_feedback(task_id: int, feedback: dict):
     try:
         # 从feedback字典中获取反馈信息和评分
@@ -157,11 +159,11 @@ async def provide_task_feedback(task_id: int, feedback: dict):
 
         # 这里应该是保存反馈到数据库的逻辑
         # 为了演示，我们假设保存总是成功的
-        result_data = {
-            "task_id": task_id,
-            "rating": rating,
-            "comment": comment
-        }
+        result_data = TaskFeedbackResponse(
+            task_id=task_id,
+            rating=rating,
+            comment=comment
+        )
         return result_data
     except Exception as e:
         # 如果发生错误，返回适当的错误响应

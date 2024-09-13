@@ -1,7 +1,7 @@
 from fastapi import APIRouter, File, Query, UploadFile, HTTPException, Depends
 from auth_token import create_access_token, get_current_user
 from mock_data import get_mock_tasks
-from schemas import CommonResponseBool, RegisterRefugeeTask, TaskDifficulty, TaskStatus, TaskType, Task
+from schemas import CommonResponseBool, LoginResponse, RefugeeTask, RegisterRefugeeTask, RewardHistory, RewardHistoryResponse, TaskDifficulty, TaskFeedback, TaskFeedbackInfo, TaskStatus, TaskType, Task, WithdrawRequest, WithdrawStatusResponse
 from datetime import datetime, timedelta
 from typing import Optional, List
 from fastapi.security import OAuth2PasswordBearer
@@ -10,7 +10,7 @@ router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # 账户管理
-@router.post("/api/refugee/register", response_model=dict)
+@router.post("/api/refugee/register", response_model=RefugeeTask)
 async def register_refugee(refugee: RegisterRefugeeTask):
     try:
         # 这里应该有验证用户名是否已存在的逻辑
@@ -21,19 +21,21 @@ async def register_refugee(refugee: RegisterRefugeeTask):
         # 这里应该有将用户信息保存到数据库的逻辑
 
         # 模拟创建用户
-        new_refugee = {
-            "userId": 1,
-            "username": refugee.username,
-            "phone": refugee.phone,
-            "email": refugee.email,
-            "register_time": datetime.now(),
-        }
+        new_refugee = RefugeeTask(
+            user_id = 1,
+            username = refugee.username,
+            phone = refugee.phone,
+            email = refugee.email,
+            status = TaskStatus.PENDING,
+            created_at = datetime.now(),
+            updated_at = datetime.now(),
+        )
 
         return new_refugee
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/api/refugee/login", response_model=dict)
+@router.post("/api/refugee/login", response_model=LoginResponse)
 async def login_refugee(username: str, password: str, language: Optional[str] = "en"):
     try:
         # 这里应该有验证用户名和密码的逻辑
@@ -41,12 +43,12 @@ async def login_refugee(username: str, password: str, language: Optional[str] = 
         # 生成访问令牌
         access_token = create_access_token(data={"sub": userId})
         # 模拟登录成功
-        login_data = {
-            "userId": userId,
-            "username": username,
-            "access_token": access_token,
-            "token_type": "bearer"
-        }
+        login_data = LoginResponse(
+            userId=userId,
+            username=username,
+            access_token=access_token,
+            token_type="bearer"
+        )
 
         return login_data
     except Exception as e:
@@ -73,22 +75,22 @@ async def forgot_password(contact: str = Query(..., min_length=1), password: str
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.put("/api/refugee/update-profile", response_model=dict)
+@router.put("/api/refugee/update-profile", response_model=RefugeeTask)
 async def update_refugee_profile(
     userId: str = Depends(get_current_user),
-    username: Optional[str] = None,
-    phone: Optional[str] = None,
-    email: Optional[str] = None,
+    username: Optional[str] = Query(None),
+    phone: Optional[str] = Query(None),
+    email: Optional[str] = Query(None),
 ):
     try:
         # 这里应该是实际的数据库更新逻辑
         # 模拟更新用户信息
-        updated_user = {
-            "userId": userId,
-            "username": username,
-            "phone": phone,
-            "email": email
-        }
+        updated_user = RefugeeTask(
+            user_id=userId,
+            username=username,
+            phone=phone,
+            email=email,
+        )
 
         return updated_user
     except Exception as e:
@@ -209,7 +211,7 @@ async def submit_task(task_id: int, userId: str = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/api/task/{task_id}/feedback", response_model=dict)
+@router.get("/api/task/{task_id}/feedback", response_model=TaskFeedback)
 async def get_task_feedback(task_id: int, userId: str = Depends(get_current_user)):
     try:
         # 1. 检查任务是否存在
@@ -224,23 +226,22 @@ async def get_task_feedback(task_id: int, userId: str = Depends(get_current_user
         # 3. 获取任务反馈信息
         # 这里应该从数据库中获取实际的反馈信息
         # 为了演示，我们使用模拟数据
-        feedback = {
-            "status": "approved" if task.status == TaskStatus.COMPLETED else "pending",
-            "comments": "Great job!" if task.status == TaskStatus.COMPLETED else "Still under review.",
-            "review_date": datetime.now().isoformat() if task.status == TaskStatus.COMPLETED else None
-        }
-        result_data = {
-            "task_id": task_id,
-            "feedback": feedback
-        }
-        return result_data
+        feedback = TaskFeedbackInfo(
+            status="approved" if task.status == TaskStatus.COMPLETED else "pending",
+            comments="Great job!" if task.status == TaskStatus.COMPLETED else "Still under review.",
+            review_date=datetime.now() if task.status == TaskStatus.COMPLETED else None
+        )
+        return TaskFeedback(
+            task_id=task_id,
+            feedback=feedback
+        )
     except HTTPException as http_ex:
         raise http_ex
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 # 报酬结算
-@router.get("/api/reward/history", response_model=dict)
+@router.get("/api/reward/history", response_model=RewardHistoryResponse)
 async def get_reward_history(userId: str = Depends(get_current_user)):
     try:
         # 这里应该从数据库中获取用户的任务收入历史
@@ -261,15 +262,15 @@ async def get_reward_history(userId: str = Depends(get_current_user)):
         ]
         
         total_reward = sum(item["reward_amount"] for item in reward_history)
-        return_data = {
-            "reward_history": reward_history,
-            "total_reward": total_reward
-        }
+        return_data = RewardHistoryResponse(
+            reward_history=[RewardHistory(**item) for item in reward_history],
+            total_reward=total_reward
+        )
         return return_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/api/reward/withdraw", response_model=dict)
+@router.post("/api/reward/withdraw", response_model=WithdrawRequest)
 async def withdraw_reward(
     amount: float,
     payment_method: str,
@@ -287,44 +288,50 @@ async def withdraw_reward(
 
         # 这里应该检查用户的可用余额，并在数据库中记录提现请求
         # 为了演示，我们假设操作总是成功的
-        return_data = {
-            "user_id": user_id,
-            "amount": amount,
-            "payment_method": payment_method,
-            "request_date": datetime.now().isoformat(),
-            "status": "Pending"
-        }
-        return return_data
+        # Create a new WithdrawRequest model instance
+        withdraw_request = WithdrawRequest(
+            user_id=user_id,
+            amount=amount,
+            payment_method=payment_method,
+            request_date=datetime.now(),
+            status="Pending"
+        )
+        
+        # Here you would typically save the withdraw_request to the database
+        
+        return withdraw_request.dict()
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/api/reward/withdraw-status", response_model=dict)
+@router.get("/api/reward/withdraw-status", response_model=WithdrawStatusResponse)
 async def get_withdraw_status(user_id: str = Depends(get_current_user)):
     try:
         # 这里应该从数据库中获取用户的提现记录
         # 为了演示，我们使用模拟数据
         withdraw_history = [
-            {
-                "id": 1,
-                "amount": 100.0,
-                "payment_method": "PayPal",
-                "request_date": "2023-05-01T10:00:00",
-                "status": "Completed"
-            },
-            {
-                "id": 2,
-                "amount": 50.0,
-                "payment_method": "Mobile Money",
-                "request_date": "2023-05-10T14:30:00",
-                "status": "Pending"
-            }
+            WithdrawRequest(
+                id=1,
+                user_id=user_id,
+                amount=100.0,
+                payment_method="PayPal",
+                request_date=datetime.fromisoformat("2023-05-01T10:00:00"),
+                status="Completed"
+            ),
+            WithdrawRequest(
+                id=2,
+                user_id=user_id,
+                amount=50.0,
+                payment_method="Mobile Money",
+                request_date=datetime.fromisoformat("2023-05-10T14:30:00"),
+                status="Pending"
+            )
         ]
-        result_data = {
-            "withdraw_history": withdraw_history,
-            "pending_withdrawals": [w for w in withdraw_history if w["status"] == "Pending"]
-        }
+        result_data = WithdrawStatusResponse(
+            withdraw_history=withdraw_history,
+            pending_withdrawals=[w for w in withdraw_history if w.status == "Pending"]
+        )
         return result_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
