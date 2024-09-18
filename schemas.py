@@ -4,12 +4,23 @@ from datetime import datetime
 from typing import Optional, Union
 from typing import Optional, List
 
+class TABLE_NAMES:
+    REFUGEE = "Refugee"
+    ENTERPRISE = "Enterprise"
+    TASK = "Task"
+    REWARD_HISTORY = "RewardHistory"
+    WITHDRAW_REQUEST = "WithdrawRequest"
+
+class PARTITION_KEYS:
+    PARKEY = "PartitionKey"
+    ROWKEY = "RowKey"
+
 class TaskStatus(str, Enum):
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    PAUSED = "paused"
-    CANCELLED = "cancelled"
+    PENDING = "pending"  # 待处理
+    IN_PROGRESS = "in_progress"  # 进行中
+    COMPLETED = "completed"  # 已完成
+    PAUSED = "paused"  # 已暂停
+    CANCELLED = "cancelled"  # 已取消
 
 class TaskType(str, Enum):
     DATA_ENTRY = "data_entry"
@@ -37,13 +48,18 @@ class TaskCreate(TaskBase):
 
 class Task(TaskBase):
     id: int
-    user_id: Optional[int] = None  # 新增用户id字段，设置默认值为None
+    user_id: Optional[int] = 0  # 新增用户id字段，设置默认值为0
+    enterprise_id: Optional[int] = 0  # 新增企业用户id字段，设置默认值为0
     status: TaskStatus
     created_at: datetime
     updated_at: datetime
     completed_units: int = 0
     review_comment: str
     rating: Optional[float] = Field(None, ge=0, le=5, description="Task rating from 0 to 5")
+
+class TaskListResponse(BaseModel):
+    total_count: int
+    tasks: List[Task]
 
 class TaskCreateResponse(BaseModel):
     task: Task
@@ -131,6 +147,7 @@ class EnterpriseRegistration(BaseModel):
     name: str  # 企业名称
     email: str  # 企业邮箱
     phone: str  # 企业联系电话
+    password: str # 企业密码
     address: str  # 企业地址
     industry: str  # 所属行业
     registration_number: str  # 企业注册号
@@ -147,7 +164,6 @@ class EnterpriseResponse(BaseModel):
     id: int  # 企业ID，由系统自动生成
     name: str  # 企业名称
     email: str  # 企业邮箱
-    password: str # 企业密码
     phone: str  # 企业联系电话
     address: str  # 企业地址
     industry: str  # 所属行业

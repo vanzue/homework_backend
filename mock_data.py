@@ -23,7 +23,7 @@ def get_mock_tasks():
             completed_units=350,
             resources=[HttpUrl("https://example.com/customer_info_template.pdf")],
             review_comment="",
-            rating=None
+            rating=0
         ),
         Task(
             id=2,
@@ -41,11 +41,11 @@ def get_mock_tasks():
             completed_units=0,
             resources=[HttpUrl("https://example.com/street_scene_images.zip")],
             review_comment="",
-            rating=None
+            rating=0
         ),
         Task(
             id=3,
-            user_id=None,  # 添加用户ID字段
+            user_id=0,  # 添加用户ID字段
             title="内容审核：社交媒体帖子",
             description="审核社交媒体帖子是否包含不适当内容",
             type=TaskType.CONTENT_MODERATION,
@@ -53,7 +53,7 @@ def get_mock_tasks():
             status=TaskStatus.PENDING,
             created_at=now - timedelta(days=random.randint(30, 90)),
             updated_at=now - timedelta(days=random.randint(0, 5)),
-            deadline=None,
+            deadline=now,
             reward_per_unit=0.1,
             total_units=10000,
             completed_units=10000,
@@ -159,28 +159,28 @@ def get_mock_refugee_tasks():
     return [
         RefugeeTask(
             user_id=1,
-            username="refugee1",
-            password=hashlib.md5("password123".encode()).hexdigest(),
+            username="test1",
+            password=hashlib.md5("test123".encode()).hexdigest(),
             phone="+1 (555) 123-4567",
-            email="refugee1@example.com",
+            email="test1@example.com",
             created_at=now - timedelta(days=30),
             updated_at=now - timedelta(days=25)
         ),
         RefugeeTask(
             user_id=2,
-            username="refugee2",
-            password=hashlib.md5("securepass456".encode()).hexdigest(),
+            username="test2",
+            password=hashlib.md5("test123".encode()).hexdigest(),
             phone="+1 (555) 987-6543",
-            email="refugee2@example.com",
+            email="test2@example.com",
             created_at=now - timedelta(days=20),
             updated_at=now - timedelta(days=18)
         ),
         RefugeeTask(
             user_id=3,
-            username="refugee3",
-            password=hashlib.md5("safeword789".encode()).hexdigest(),
+            username="test3",
+            password=hashlib.md5("test123".encode()).hexdigest(),
             phone="+1 (555) 246-8135",
-            email="refugee3@example.com",
+            email="test3@example.com",
             created_at=now - timedelta(days=15),
             updated_at=now - timedelta(days=10)
         )

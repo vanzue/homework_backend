@@ -1,22 +1,19 @@
 from fastapi import APIRouter, File, Query, UploadFile, HTTPException, Depends
+from pydantic import HttpUrl
 from auth_token import create_access_token, verify_oauth_token
 from enterprise_routes import update_task_in_database
 from mock_data import get_mock_refugee_tasks, get_mock_tasks
-from schemas import CommonResponseBool, LoginResponse, RefugeeTask, RegisterRefugeeTask, RewardHistory, RewardHistoryResponse, TaskDifficulty, TaskFeedbackInfoGet, TaskStatus, TaskType, Task, WithdrawRequest, WithdrawStatusResponse
+from database import get_latest_id_by_partition, check_field_exists, insert_entity, get_entity_by_field, update_entity_fields, get_all_entities
+from schemas import CommonResponseBool, LoginResponse, RefugeeTask, RegisterRefugeeTask, RewardHistory, RewardHistoryResponse, TaskDifficulty, TaskFeedbackInfoGet, TaskListResponse, TaskStatus, TaskType, Task, WithdrawRequest, WithdrawStatusResponse, PARTITION_KEYS, TABLE_NAMES
 from datetime import datetime, timedelta
 from typing import Optional, List
 from fastapi.security import OAuth2PasswordBearer
+import hashlib
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # 账户管理
-import hashlib
-from fastapi import APIRouter, Query, HTTPException, Depends
-from schemas import RefugeeTask, RegisterRefugeeTask, TaskStatus
-from datetime import datetime
-from typing import Optional
-from auth_token import verify_oauth_token
 
 router = APIRouter()
 
@@ -24,26 +21,31 @@ router = APIRouter()
 async def register_refugee(refugee: RegisterRefugeeTask):
     try:
         # 获取mock数据
-        mock_refugee_tasks = get_mock_refugee_tasks()
+        # mock_refugee_tasks = get_mock_refugee_tasks()
         
-        # 生成新的用户ID
-        new_id = max(task.user_id for task in mock_refugee_tasks) + 1 if mock_refugee_tasks else 1
+        
         # 验证用户名是否已存在
-        if check_username_exists(refugee.username):
+        usernameIsCheck = check_field_exists(TABLE_NAMES.REFUGEE, "username", refugee.username)
+        if usernameIsCheck:
             raise HTTPException(status_code=400, detail="Username already exists")
 
         # 验证手机号是否已存在
-        if check_phone_exists(refugee.phone):
+        phoneIsCheck = check_field_exists(TABLE_NAMES.REFUGEE, "phone", refugee.phone)
+        if phoneIsCheck:
             raise HTTPException(status_code=400, detail="Phone number already exists")
 
         # 验证邮箱是否已存在
-        if check_email_exists(refugee.email):
+        emailIsCheck = check_field_exists(TABLE_NAMES.REFUGEE, "email", refugee.username)
+        if emailIsCheck:
             raise HTTPException(status_code=400, detail="Email already exists")
 
         # 密码加密
         hashed_password = hashlib.md5(refugee.password.encode()).hexdigest()
 
         # 创建新用户
+
+        # 生成新的用户ID
+        new_id = get_latest_id_by_partition(TABLE_NAMES.REFUGEE, PARTITION_KEYS.PARKEY)
         new_refugee = RefugeeTask(
             user_id=new_id,  # 生成唯一的用户ID
             username=refugee.username,
@@ -67,27 +69,23 @@ async def register_refugee(refugee: RegisterRefugeeTask):
 @router.post("/api/refugee/login", response_model=LoginResponse)
 async def login_refugee(username: str, password: str, language: Optional[str] = "en"):
     try:
-        # 获取所有难民用户
-        refugees = get_mock_refugee_tasks()
-        
         # 查找匹配的用户
-        user = next((r for r in refugees if r.username == username), None)
-        
+        user = get_entity_by_field(TABLE_NAMES.REFUGEE, "username", username)
         if not user:
             raise HTTPException(status_code=401, detail="Invalid username or password")
         
         # 验证密码
         hashed_password = hashlib.md5(password.encode()).hexdigest()
-        if user.password != hashed_password:
+        if user['password'] != hashed_password:
             raise HTTPException(status_code=401, detail="Invalid username or password")
         
         # 生成访问令牌
-        access_token = create_access_token(data={"sub": str(user.user_id)})
+        access_token = create_access_token(data={"sub": str(user['PartitionKey'])})
         
         # 创建登录响应
         login_data = LoginResponse(
-            userId=user.user_id,
-            username=user.username,
+            userId=user['PartitionKey'],
+            username=user['username'],
             access_token=access_token,
             token_type="bearer"
         )
@@ -105,27 +103,24 @@ async def forgot_password(contact: str = Query(..., min_length=1), password: str
         if contact_type not in ["phone", "email"]:
             raise HTTPException(status_code=400, detail="Invalid contact type")
 
-        # 获取所有难民用户
-        refugees = get_mock_refugee_tasks()
-
         # 根据联系方式查找用户
         user = None
         if contact_type == "phone":
-            user = next((r for r in refugees if r.phone == contact), None)
+            user = get_entity_by_field(TABLE_NAMES.REFUGEE, "phone", contact)
         elif contact_type == "email":
-            user = next((r for r in refugees if r.email == contact), None)
+            user = get_entity_by_field(TABLE_NAMES.REFUGEE, "email", contact)
 
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
         # 更新用户密码
         hashed_password = hashlib.md5(password.encode()).hexdigest()
-        user.password = hashed_password
-        user.updated_at = datetime.now()
+        user['password'] = hashed_password
+        user['updated_at'] = datetime.now()
 
         # 在实际应用中，这里应该有保存到数据库的逻辑
         # 但在这个mock环境中，我们只是更新了内存中的对象
-
+        isUpdate = update_entity_fields(TABLE_NAMES.REFUGEE, user[PARTITION_KEYS.PARKEY], user[PARTITION_KEYS.ROWKEY], user)
         return CommonResponseBool(
             result=True
         )
@@ -134,77 +129,73 @@ async def forgot_password(contact: str = Query(..., min_length=1), password: str
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.put("/api/refugee/update-profile", response_model=RefugeeTask)
-async def update_refugee_profile(
-    userId: str = Depends(verify_oauth_token),
-    username: Optional[str] = Query(None),
-    phone: Optional[str] = Query(None),
-    email: Optional[str] = Query(None),
-):
+@router.put("/api/refugee/update-profile", response_model=CommonResponseBool)
+async def update_refugee_profile(refugee: RegisterRefugeeTask, userId: str = Depends(verify_oauth_token)):
     try:
         # 获取当前用户信息
-        refugees = get_mock_refugee_tasks()
-        user = next((r for r in refugees if r.user_id == int(userId)), None)
-        
+        user = get_entity_by_field(TABLE_NAMES.REFUGEE, PARTITION_KEYS.PARKEY, userId)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
+        # 准备更新字段
+        fields_to_update = {}
+        if refugee.username:
+            if refugee.username != user['username'] and get_entity_by_field(TABLE_NAMES.REFUGEE, "username", refugee.username):
+                raise HTTPException(status_code=400, detail="Username already exists")
+            fields_to_update['username'] = refugee.username
+        if refugee.phone:
+            if refugee.phone != user['phone'] and get_entity_by_field(TABLE_NAMES.REFUGEE, "phone", refugee.phone):
+                raise HTTPException(status_code=400, detail="Phone number already exists")
+            fields_to_update['phone'] = refugee.phone
+        if refugee.email:
+            if refugee.email != user['email'] and get_entity_by_field(TABLE_NAMES.REFUGEE, "email", refugee.email):
+                raise HTTPException(status_code=400, detail="Email already exists")
+            fields_to_update['email'] = refugee.email
+
+        fields_to_update['updated_at'] = datetime.now().isoformat()
+
         # 更新用户信息
-        if username:
-            user.username = username
-        if phone:
-            user.phone = phone
-        if email:
-            user.email = email
-
-        user.updated_at = datetime.now()
-
-        # 在实际应用中，这里应该有保存到数据库的逻辑
-        # 调用保存到数据库的方法
-        save_refugee_to_database(user)
-        # 但在这个mock环境中，我们只是更新了内存中的对象
-
-        # 创建更新后的用户对象
-        updated_user = RefugeeTask(
-            user_id=user.user_id,
-            username=user.username,
-            phone=user.phone,
-            email=user.email,
-            status=user.status,
-            created_at=user.created_at,
-            updated_at=user.updated_at
+        update_success = update_entity_fields(
+            TABLE_NAMES.REFUGEE,
+            user[PARTITION_KEYS.PARKEY], 
+            user[PARTITION_KEYS.ROWKEY],
+            fields_to_update
         )
 
-        return updated_user
+        if not update_success:
+            raise HTTPException(status_code=500, detail="Failed to update user profile")
+
+        return CommonResponseBool(
+            result = True
+        )
     except HTTPException as http_ex:
         raise http_ex
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred while updating profile: {str(e)}")
     
 # 辅助函数
-def check_username_exists(username: str) -> bool:
-    mock_refugees = get_mock_refugee_tasks()
-    return any(refugee.username == username for refugee in mock_refugees)
-
-def check_phone_exists(phone: str) -> bool:
-    mock_refugees = get_mock_refugee_tasks()
-    return any(refugee.phone == phone for refugee in mock_refugees)
-
-def check_email_exists(email: str) -> bool:
-    mock_refugees = get_mock_refugee_tasks()
-    return any(refugee.email == email for refugee in mock_refugees)
-
 def save_refugee_to_database(refugee: RefugeeTask) -> RefugeeTask:
-    mock_refugees = get_mock_refugee_tasks()
-    mock_refugees.append(refugee)
-    # 在实际应用中，这里应该有保存到数据库的逻辑
-    # 但在这个mock环境中，我们只是将新用户添加到列表中
+    # 将难民数据插入到Refugee表中
+    entity = {
+        "PartitionKey": str(refugee.user_id),
+        "RowKey": str(refugee.user_id),
+        "user_id": refugee.user_id,
+        "username": refugee.username,
+        "phone": refugee.phone,
+        "email": refugee.email,
+        "password": refugee.password,
+        "status": refugee.status.value,
+        "created_at": refugee.created_at.isoformat(),
+        "updated_at": refugee.updated_at.isoformat()
+    }
+    insert_entity(TABLE_NAMES.REFUGEE, entity)
+    return refugee
 
 
 # 任务浏览与申请
 
 #获取可用任务列表，按类型、难度、报酬等进行筛选。
-@router.get("/api/task/browse", response_model=List[Task])
+@router.get("/api/task/browse", response_model=TaskListResponse)
 async def browse_tasks(
     userId: str = Depends(verify_oauth_token),
     task_type: Optional[TaskType] = Query(None, description="Filter tasks by type"),
@@ -217,28 +208,37 @@ async def browse_tasks(
 ):
     try:
         # 这里应该是实际的数据库查询逻辑
-        # 为了演示，我们使用模拟数据
-        all_tasks = get_mock_tasks()
-        tasks = [task for task in all_tasks if task.user_id == int(userId)]
-
+        search_params = {}
+        # 筛选user_id为空或者0的任务
+        search_params["user_id"] = 0
         # 根据查询参数筛选任务
         if task_type:
-            tasks = [task for task in tasks if task.type == task_type]
+            search_params["type"] = task_type.value
         if difficulty:
-            tasks = [task for task in tasks if task.difficulty == difficulty]
+            search_params["difficulty"] = difficulty.value
         if min_reward is not None:
-            tasks = [task for task in tasks if task.reward_per_unit >= min_reward]
+            search_params["reward_per_unit__ge"] = min_reward
         if max_reward is not None:
-            tasks = [task for task in tasks if task.reward_per_unit <= max_reward]
+            search_params["reward_per_unit__le"] = max_reward
         if status:
-            tasks = [task for task in tasks if task.status == status]
+            search_params["status"] = status.value
 
-        # 简单的分页逻辑
-        start = (page - 1) * page_size
-        end = start + page_size
-        paginated_tasks = tasks[start:end]
+        all_tasks, total_count = get_all_entities(TABLE_NAMES.TASK, page, page_size, **search_params)
 
-        return paginated_tasks
+        # Convert the raw entities to Task objects
+        tasks = []
+        for task in all_tasks:
+            # 确保 resources 字段是一个列表
+            if isinstance(task.get('resources'), str):
+                task['resources'] = [task['resources']]
+            elif task.get('resources') is None:
+                task['resources'] = []
+            tasks.append(Task(**task))
+
+        return TaskListResponse(
+            total_count=total_count,
+            tasks=tasks
+        )
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -247,56 +247,79 @@ async def browse_tasks(
 @router.post("/api/task/{task_id}/apply", response_model=CommonResponseBool)
 async def apply_for_task(task_id: int, userId: str = Depends(verify_oauth_token)):
     try:
-        # 这里应该是实际的数据库操作逻辑
-        tasks = get_mock_tasks()
         # 1. 检查任务是否存在
-        task = next((task for task in tasks if task.id == task_id), None)
-        if not task:
+        task_entity = get_entity_by_field(TABLE_NAMES.TASK, PARTITION_KEYS.PARKEY, str(task_id))
+        if not task_entity:
             raise HTTPException(status_code=404, detail="Task not found")
         
         # 2. 检查任务是否可以申请（例如，状态是否为 PENDING）
-        if task.status != TaskStatus.PENDING:
+        if TaskStatus(task_entity['status']) != TaskStatus.PENDING:
             raise HTTPException(status_code=400, detail="This task is not available for application")
         
         # 3. 检查任务是否已经被其他用户申请
-        if task.user_id is not None:
+        if task_entity.get('user_id'):
             raise HTTPException(status_code=400, detail="This task has already been assigned to another user")
         
         # 4. 检查用户是否已经申请过这个任务
-        if task.user_id == int(userId):
+        if task_entity.get('user_id') == userId:
             raise HTTPException(status_code=400, detail="You have already applied for this task")
         
         # 更新任务状态为进行中
-        if task:
-            task.user_id = userId
-            task.status = TaskStatus.IN_PROGRESS
-            task.updated_at = datetime.now()
-            update_task_in_database(task)
+        fields_to_update = {
+            'user_id': userId,
+            'status': TaskStatus.IN_PROGRESS.value,
+            'updated_at': datetime.now().isoformat()
+        }
         
-        return CommonResponseBool(
-            result=True
+        update_success = update_entity_fields(
+            TABLE_NAMES.TASK,
+            task_entity['PartitionKey'],
+            task_entity['RowKey'],
+            fields_to_update
         )
+        
+        if not update_success:
+            raise HTTPException(status_code=500, detail="Failed to update task")
+        
+        return CommonResponseBool(result=True)
     except HTTPException as http_ex:
         raise http_ex
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 # 任务执行
-
 #获取用户已申请的任务列表及状态。
-@router.get("/api/task/my-tasks", response_model=List[Task])
-async def get_my_tasks(userId: str = Depends(verify_oauth_token)):
+@router.get("/api/task/my-tasks", response_model=TaskListResponse)
+async def get_my_tasks(
+    userId: str = Depends(verify_oauth_token), 
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(10, ge=1, le=100, description="Number of items per page")
+):
     try:
+        search_params = {
+            "user_id": userId
+        }
         # 获取所有任务
-        all_tasks = get_mock_tasks()
+        all_tasks, total_count = get_all_entities(TABLE_NAMES.TASK, page, page_size, **search_params)
 
-        # 筛选出用户的任务
-        user_tasks = [task for task in all_tasks if task.user_id == int(userId)]
+        # 将任务列表转换为Task对象列表
+        tasks = []
+        for task in all_tasks:
+            # 确保 resources 字段是一个列表
+            if isinstance(task.get('resources'), str):
+                task['resources'] = [task['resources']]
+            elif task.get('resources') is None:
+                task['resources'] = []
+            tasks.append(Task(**task))
 
         # 按更新时间降序排序
-        user_tasks.sort(key=lambda x: x.updated_at, reverse=True)
+        tasks.sort(key=lambda x: x.updated_at, reverse=True)
 
-        return user_tasks
+        # 构建响应
+        return TaskListResponse(
+            total_count=total_count,
+            tasks=tasks
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred while fetching tasks: {str(e)}")
 
@@ -305,32 +328,53 @@ async def get_my_tasks(userId: str = Depends(verify_oauth_token)):
 async def submit_task(task_id: int, userId: str = Depends(verify_oauth_token)):
     try:
         # 1. 检查任务是否存在
-        task = next((task for task in get_mock_tasks() if task.id == task_id), None)
-        if not task:
+        task_entity = get_entity_by_field(TABLE_NAMES.TASK, PARTITION_KEYS.PARKEY, task_id)
+        if not task_entity:
             raise HTTPException(status_code=404, detail="Task not found")
         
-        # 2. 检查任务状态是否为进行中
-        if task.status != TaskStatus.IN_PROGRESS:
+        # 2. 检查任务是否属于当前用户
+        if str(task_entity.get('user_id')) != userId:
+            raise HTTPException(status_code=403, detail="You don't have permission to submit this task")
+        
+        # 3. 检查任务状态是否为进行中
+        if task_entity.get('status') != TaskStatus.IN_PROGRESS.value:
             raise HTTPException(status_code=400, detail="Task is not in progress")
         
-        # 3. 更新任务状态为已完成
-        task.status = TaskStatus.COMPLETED
-        task.updated_at = datetime.now()
-        task.completed_units = task.total_units  # 假设提交时所有单元都已完成
+        # 4. 更新任务状态为已完成
+        fields_to_update = {
+            'status': TaskStatus.COMPLETED.value,
+            'updated_at': datetime.now().isoformat(),
+            'completed_units': task_entity.get('total_units')
+        }
         
-        # 4. 更新数据库中的任务状态
-        is_updated = update_task_in_database(task)
-        if not is_updated:
+        update_success = update_entity_fields(
+            TABLE_NAMES.TASK,
+            task_entity['PartitionKey'],
+            task_entity['RowKey'],
+            fields_to_update
+        )
+        
+        if not update_success:
             raise HTTPException(status_code=500, detail="Failed to update task status")
         
-        # 6. 计算并更新用户的奖励
-        # reward_amount = task.reward_per_unit * task.completed_units
-        # 这里应该有更新用户奖励的逻辑，比如调用一个更新用户余额的函数
-        # update_user_balance(userId, reward_amount)
+        # 5. 计算并更新用户的奖励
+        # reward_amount = task_entity.get('reward_per_unit', 0) * task_entity.get('total_units', 0)
         
-        return CommonResponseBool(
-            result=True
-        )
+        # 6. 创建奖励历史记录
+        # reward_history = {
+        #     'PartitionKey': userId,
+        #     'RowKey': f"{int(time.time())}",
+        #     'task_id': task_id,
+        #     'task_title': task_entity.get('title'),
+        #     'completion_date': datetime.now().isoformat(),
+        #     'reward_amount': reward_amount
+        # }
+        
+        # insert_success = insert_entity(TABLE_NAMES.REWARD_HISTORY, reward_history)
+        # if not insert_success:
+        #     raise HTTPException(status_code=500, detail="Failed to create reward history")
+        
+        return CommonResponseBool(result=True)
     except HTTPException as http_ex:
         raise http_ex
     except Exception as e:
@@ -341,16 +385,20 @@ async def submit_task(task_id: int, userId: str = Depends(verify_oauth_token)):
 async def get_task_feedback(task_id: int, userId: str = Depends(verify_oauth_token)):
     try:
         # 1. 检查任务是否存在
-        tasks = get_mock_tasks()
-        task = next((t for t in tasks if t.id == task_id), None)
-        if not task:
+        task_entity = get_entity_by_field(TABLE_NAMES.TASK, PARTITION_KEYS.PARKEY, str(task_id))
+        if not task_entity:
             raise HTTPException(status_code=404, detail="Task not found")
         
-        # 2. 获取任务反馈信息
+        # 2. 检查任务是否属于当前用户
+        if str(task_entity.get('user_id')) != userId:
+            raise HTTPException(status_code=403, detail="You don't have permission to view this task's feedback")
+        
+        # 3. 获取任务反馈信息
         feedback = TaskFeedbackInfoGet(
-            review_comment=task.review_comment if task.review_comment else "",
-            status=task.status
+            review_comment=task_entity.get('review_comment', ''),
+            status=TaskStatus(task_entity.get('status'))
         )
+        
         # 4. 构建并返回响应
         return feedback
     except HTTPException as http_ex:
