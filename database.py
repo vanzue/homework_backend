@@ -37,13 +37,15 @@ class AzureTableStorage:
         except ResourceNotFoundError:
             print(f"Table '{table_name}' not found.")
 
-    def insert_entity(self, table_name: str, entity: Dict[str, Any]) -> None:
+    def insert_entity(self, table_name: str, entity: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         table_client = self.table_service_client.get_table_client(table_name)
         try:
-            table_client.create_entity(entity)
+            created_entity = table_client.create_entity(entity)
             print(f"Entity inserted successfully into table '{table_name}'.")
+            return dict(created_entity)
         except Exception as e:
             print(f"Error inserting entity into table '{table_name}': {str(e)}")
+            return None
 
     def update_entity(self, table_name: str, entity: Dict[str, Any]) -> None:
         table_client = self.table_service_client.get_table_client(table_name)
