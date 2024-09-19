@@ -26,11 +26,18 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"  # 已取消
 
 
+class PaymentStatus(str, Enum):
+    UNPAID = "unpaid"  # 未支付
+    PROCESSING = "processing"  # 处理中
+    PAID = "paid"  # 已支付
+    FAILED = "failed"  # 支付失败
+
+
 class TaskType(str, Enum):
-    DATA_ENTRY = "data_entry"
-    IMAGE_LABELING = "image_labeling"
-    CONTENT_MODERATION = "content_moderation"
-    TRANSLATION = "translation"
+    DATA_ENTRY = "data_entry"  # 数据录入
+    IMAGE_LABELING = "image_labeling"  # 图像标注
+    CONTENT_MODERATION = "content_moderation"  # 内容审核
+    TRANSLATION = "translation"  # 翻译
 
 
 class TaskDifficulty(str, Enum):
@@ -59,6 +66,7 @@ class Task(TaskBase):
     user_id: Optional[int] = 0  # 新增用户id字段，设置默认值为0
     enterprise_id: Optional[int] = 0  # 新增企业用户id字段，设置默认值为0
     status: TaskStatus
+    payment_status: PaymentStatus
     created_at: datetime
     updated_at: datetime
     completed_units: int = 0  # 已完成的任务数
@@ -69,7 +77,7 @@ class Task(TaskBase):
 
 
 class TaskListResponse(BaseModel):
-    total_count: int
+    total_count: float
     tasks: List[Task]
 
 
@@ -97,6 +105,7 @@ class RefugeeTask(BaseModel):
     email: str
     password: Optional[str] = None
     status: Optional[TaskStatus] = None
+    balance: Optional[float] = 0
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -106,6 +115,7 @@ class RegisterRefugeeTask(BaseModel):
     password: str
     phone: str
     email: str
+    balance: Optional[float] = 0
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -146,29 +156,46 @@ class TaskFeedbackResponse(BaseModel):
     message: str
 
 
-class RewardHistory(BaseModel):
-    task_id: int
-    task_title: str
-    completion_date: datetime
-    reward_amount: float
-
-
-class RewardHistoryResponse(BaseModel):
-    reward_history: List[RewardHistory]
-    total_reward: float
+class WithdrawStatus(str, Enum):
+    PENDING = "pending"  # 待处理
+    IN_PROGRESS = "in_progress"  # 进行中
+    COMPLETED = "completed"  # 已完成
+    PAUSED = "paused"  # 已暂停
+    CANCELLED = "cancelled"  # 已取消
 
 
 class WithdrawRequest(BaseModel):
-    user_id: str
+    user_id: int
     amount: float
     payment_method: str
     request_date: datetime
-    status: str
+    status: WithdrawStatus
+    created_at: datetime  # 记录创建时间
+    updated_at: datetime  # 记录最后更新时间
 
 
 class WithdrawStatusResponse(BaseModel):
     withdraw_history: List[WithdrawRequest]
-    pending_withdrawals: List[WithdrawRequest]
+    total_count: float
+
+
+class RewardRequest(BaseModel):
+    user_id: int
+    task_id: int
+    amount: float
+    created_at: datetime
+    updated_at: datetime
+
+
+class RewardRequestListResponse(BaseModel):
+    reward_requests: List[RewardRequest]
+    total_count: int
+
+
+class RewardHistoryResponse(BaseModel):
+    reward_history: List[RewardRequest]
+    total_reward: float
+    total_count: float
 
 
 class EnterpriseRegistration(BaseModel):

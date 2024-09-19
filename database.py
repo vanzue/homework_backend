@@ -50,7 +50,14 @@ class AzureTableStorage:
         try:
             created_entity = table_client.create_entity(entity)
             print(f"Entity inserted successfully into table '{table_name}'.")
-            return dict(created_entity)
+            # 获取新添加的数据
+            partition_key = entity.get("PartitionKey")
+            row_key = entity.get("RowKey")
+            if partition_key and row_key:
+                new_entity = table_client.get_entity(partition_key, row_key)
+                return dict(new_entity)
+            else:
+                return dict(created_entity)
         except Exception as e:
             print(f"Error inserting entity into table '{table_name}': {str(e)}")
             return None
@@ -123,7 +130,10 @@ class AzureTableStorage:
         table_client = self.table_service_client.get_table_client(table_name)
         try:
             # 构建查询过滤器
-            filter_query = f"{field_name} eq '{field_value}'"
+            if isinstance(field_value, (int, float)):
+                filter_query = f"{field_name} eq {field_value}"
+            else:
+                filter_query = f"{field_name} eq '{field_value}'"
 
             # 执行查询
             entities = table_client.query_entities(filter_query)

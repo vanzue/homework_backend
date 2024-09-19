@@ -1,16 +1,18 @@
 import hashlib
 import json
+import uuid
 from fastapi import APIRouter, Body, Depends, File, UploadFile, Query, HTTPException
 from typing import List, Optional
 from datetime import datetime
 from auth_token import create_access_token, verify_oauth_token
-from common import process_task_resources
+from common import process_task_resources, send_email, verify_enterprise_credentials
 from schemas import (
     CommonResponseBool,
     EnterpriseRegistration,
     EnterpriseResponse,
     EnterpriseResponse,
     LoginEnterpriseResponse,
+    PaymentStatus,
     Task,
     TaskDifficulty,
     TaskFeedbackInfo,
@@ -57,8 +59,8 @@ async def register_enterprise(enterprise: EnterpriseRegistration):
         ).hexdigest()  # 使用SHA256进行密码哈希
         new_enterprise = {
             "PartitionKey": TABLE_NAMES.ENTERPRISE,
-            "RowKey": str(new_id),  # Convert new_id to string
-            "id": str(new_id),  # Convert new_id to string
+            "RowKey": str(uuid.uuid4()),  # Generate a unique UUID
+            "id": new_id,  # Convert new_id to string
             "name": enterprise.name,
             "email": enterprise.email,
             "password": hashed_password,
@@ -80,33 +82,24 @@ async def register_enterprise(enterprise: EnterpriseRegistration):
             "updated_at": datetime.now().isoformat(),
         }
         try:
-            # 将新企业添加到Azure表存储
-            insert_entity(TABLE_NAMES.ENTERPRISE, new_enterprise)
+            # 将新企业添加到Azure表存储并获取新添加的企业数据
+            new_enterprise_data = insert_entity(TABLE_NAMES.ENTERPRISE, new_enterprise)
+            if not new_enterprise_data:
+                raise HTTPException(
+                    status_code=404, detail="Failed to create new enterprise"
+                )
+
+            # 将datetime对象转换为ISO格式字符串
+            for date_field in ["establishment_date", "created_at", "updated_at"]:
+                if date_field in new_enterprise_data:
+                    new_enterprise_data[date_field] = datetime.fromisoformat(
+                        new_enterprise_data[date_field]
+                    ).isoformat()
+
+            # 转换为EnterpriseResponse对象并返回
+            return EnterpriseResponse(**new_enterprise_data)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Bad Request: {str(e)}")
-
-        # 获取新添加的企业数据
-        new_enterprise_data = get_entity_by_field(TABLE_NAMES.ENTERPRISE, "id", new_id)
-        if not new_enterprise_data:
-            raise HTTPException(
-                status_code=404, detail="Newly created enterprise not found"
-            )
-
-        # 将datetime对象转换为ISO格式字符串
-        new_enterprise_data["establishment_date"] = datetime.fromisoformat(
-            new_enterprise_data["establishment_date"]
-        ).isoformat()
-        new_enterprise_data["created_at"] = datetime.fromisoformat(
-            new_enterprise_data["created_at"]
-        ).isoformat()
-        new_enterprise_data["updated_at"] = datetime.fromisoformat(
-            new_enterprise_data["updated_at"]
-        ).isoformat()
-
-        # 转换为EnterpriseResponse对象并返回
-        return EnterpriseResponse(**new_enterprise_data)
-    except HTTPException as http_ex:
-        raise http_ex
     except Exception as e:
         # 如果发生错误，抛出HTTP异常
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
@@ -126,6 +119,7 @@ async def login_enterprise(
             enterprise_id = verify_oauth_token(
                 oauth_token
             )  # 假设这个函数用于验证OAuth token
+
             if enterprise_id is None:
                 raise HTTPException(status_code=401, detail="Invalid or expired token")
             access_token = create_access_token(data={"sub": str(enterprise_id)})
@@ -149,29 +143,8 @@ async def login_enterprise(
         raise HTTPException(status_code=401, detail=error_message)
 
 
-# 验证邮箱和密码
-def verify_enterprise_credentials(email: str, password: str) -> Optional[int]:
-    # 从数据库中获取企业数据
-    enterprise = get_entity_by_field(TABLE_NAMES.ENTERPRISE, "email", email)
-
-    if enterprise is None:
-        return None
-
-    # 获取存储的密码哈希
-    stored_password_hash = enterprise.get("password")
-
-    if not stored_password_hash:
-        return None
-
-    # 验证密码
-    verify_password = hashlib.md5(password.encode()).hexdigest() == stored_password_hash
-    if verify_password:
-        return int(enterprise.get("id"))
-    return None
-
-
 # 发送忘记密码邮件，允许密码重置
-@router.get("/api/enterprise/forgot-password")
+@router.get("/api/enterprise/forgot-password", response_model=CommonResponseBool)
 async def forgot_password(email: str):
     try:
         # 检查邮箱是否存在
@@ -190,56 +163,68 @@ async def forgot_password(email: str):
         body = f"Click the following link to reset your password: {reset_link}\n\nThis link will expire in 1 hour."
         send_email(email, subject, body)
 
-        return {"message": "Password reset email sent successfully"}
+        return CommonResponseBool(result=True)
     except HTTPException as http_ex:
         raise http_ex
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 
-# 发送email方法
-def send_email(to_email: str, subject: str, body: str):
-    # Email configuration
-    smtp_server = "smtp.example.com"  # Replace with your SMTP server
-    smtp_port = 587  # Replace with your SMTP port
-    smtp_username = "your_username"  # Replace with your SMTP username
-    smtp_password = "your_password"  # Replace with your SMTP password
-    from_email = "noreply@yourcompany.com"  # Replace with your sender email
-
-    # Create message
-    message = MIMEMultipart()
-    message["From"] = from_email
-    message["To"] = to_email
-    message["Subject"] = subject
-
-    # Add body to email
-    message.attach(MIMEText(body, "plain"))
-
+# 重置密码
+@router.post("/api/enterprise/reset-password", response_model=CommonResponseBool)
+async def reset_password(
+    reset_token: str,
+    new_password: str,
+    enterprise_id: str = Depends(verify_oauth_token),
+):
     try:
-        # Create SMTP session
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()  # Enable TLS
-            server.login(smtp_username, smtp_password)
+        # 验证重置令牌
+        token_enterprise_id = verify_oauth_token(reset_token)
+        if token_enterprise_id != enterprise_id:
+            raise HTTPException(
+                status_code=401, detail="Token does not match the enterprise ID"
+            )
 
-            # Send email
-            server.send_message(message)
+        # 从数据库获取企业信息
+        enterprise = get_entity_by_field(
+            TABLE_NAMES.ENTERPRISE, PARTITION_KEYS.ROWKEY, enterprise_id
+        )
+        if not enterprise:
+            raise HTTPException(status_code=404, detail="Enterprise not found")
 
-        print(f"Email sent successfully to {to_email}")
+        # 更新密码
+        new_password_hash = hashlib.md5(new_password.encode()).hexdigest()
+        enterprise["password"] = new_password_hash
+
+        # 更新数据库中的企业信息
+        update_success = update_entity_fields(
+            TABLE_NAMES.ENTERPRISE,
+            enterprise[PARTITION_KEYS.PARKEY],
+            enterprise[PARTITION_KEYS.ROWKEY],
+            enterprise,
+        )
+        if not update_success:
+            raise HTTPException(
+                status_code=500, detail="Failed to update enterprise profile"
+            )
+
+        return CommonResponseBool(result=True)
+    except HTTPException as http_ex:
+        raise http_ex
     except Exception as e:
-        print(f"Failed to send email: {str(e)}")
-        raise
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 
 # 更新企业信息
 @router.put("/api/enterprise/update-profile", response_model=EnterpriseResponse)
 async def update_enterprise_profile(
-    enterprise_update: EnterpriseResponse,
+    enterprise_update: EnterpriseRegistration,
     enterprise_id: str = Depends(verify_oauth_token),
 ):
     try:
         # 从数据库获取现有企业信息
         existing_enterprise = get_entity_by_field(
-            TABLE_NAMES.ENTERPRISE, PARTITION_KEYS.ROWKEY, enterprise_id
+            TABLE_NAMES.ENTERPRISE, "id", enterprise_id
         )
         print(existing_enterprise)
         if not existing_enterprise:
@@ -309,7 +294,7 @@ async def create_task(
             )
 
         # 生成新的任务ID
-        new_id = get_latest_id_by_partition(TABLE_NAMES.TASK, PARTITION_KEYS.PARKEY)
+        new_id = get_latest_id_by_partition(TABLE_NAMES.TASK, "id")
 
         # 创建新任务
         new_task = Task(
@@ -317,8 +302,8 @@ async def create_task(
             enterprise_id=int(enterprise_id),
             title=task.title,
             description=task.description,
-            type=TaskType(task.type),
-            difficulty=TaskDifficulty(task.difficulty),
+            type=task.type,
+            difficulty=task.difficulty,
             status=TaskStatus.PENDING,
             deadline=task.deadline,
             reward_per_unit=task.reward_per_unit,
@@ -329,19 +314,23 @@ async def create_task(
             updated_at=datetime.now(),
             review_comment="",
             rating=0,
+            payment_status=PaymentStatus.UNPAID,
         )
         # 将新任务保存到数据库
         task_entity = {
-            PARTITION_KEYS.PARKEY: str(new_task.id),
-            PARTITION_KEYS.ROWKEY: str(new_task.id),
+            PARTITION_KEYS.PARKEY: TABLE_NAMES.TASK,
+            PARTITION_KEYS.ROWKEY: str(uuid.uuid4()),
             **new_task.dict(),
+            "status": new_task.status.value,
+            "payment_status": new_task.payment_status.value,
+            "type": new_task.type.value,
+            "difficulty": new_task.difficulty.value,
         }
         # Convert list fields to JSON strings
         if "resources" in task_entity:
             task_entity["resources"] = json.dumps(
                 [str(resource) for resource in task_entity["resources"]]
             )
-
         insert_task = insert_entity(TABLE_NAMES.TASK, task_entity)
         if not insert_task:
             raise HTTPException(status_code=500, detail="Failed to create task")
@@ -360,10 +349,11 @@ async def create_task(
             total_units=new_task.total_units,
             completed_units=new_task.completed_units,
             resources=new_task.resources,
-            created_at=datetime.fromisoformat(insert_task["date"].isoformat()),
-            updated_at=datetime.fromisoformat(insert_task["date"].isoformat()),
+            created_at=datetime.fromisoformat(insert_task["created_at"].isoformat()),
+            updated_at=datetime.fromisoformat(insert_task["updated_at"].isoformat()),
             review_comment=new_task.review_comment,
             rating=new_task.rating,
+            payment_status=new_task.payment_status,  # Add this line
         )
 
         return created_task
@@ -429,9 +419,7 @@ async def get_task_progress(
 ):
     try:
         # 从数据库获取任务信息
-        task_entity = get_entity_by_field(
-            TABLE_NAMES.TASK, PARTITION_KEYS.PARKEY, str(task_id)
-        )
+        task_entity = get_entity_by_field(TABLE_NAMES.TASK, "id", task_id)
         if not task_entity:
             raise HTTPException(status_code=404, detail="Task not found")
 
@@ -475,9 +463,7 @@ async def get_task_progress(
 async def pause_task(task_id: int, enterprise_id: str = Depends(verify_oauth_token)):
     try:
         # 从数据库获取任务
-        task_entity = get_entity_by_field(
-            TABLE_NAMES.TASK, PARTITION_KEYS.PARKEY, str(task_id)
-        )
+        task_entity = get_entity_by_field(TABLE_NAMES.TASK, "id", task_id)
         if not task_entity:
             raise HTTPException(status_code=404, detail="Task not found")
 
@@ -529,9 +515,7 @@ async def pause_task(task_id: int, enterprise_id: str = Depends(verify_oauth_tok
 async def cancel_task(task_id: int, enterprise_id: str = Depends(verify_oauth_token)):
     try:
         # 从数据库获取任务
-        task_entity = get_entity_by_field(
-            TABLE_NAMES.TASK, PARTITION_KEYS.PARKEY, str(task_id)
-        )
+        task_entity = get_entity_by_field(TABLE_NAMES.TASK, "id", task_id)
         if not task_entity:
             raise HTTPException(status_code=404, detail="Task not found")
 
@@ -582,9 +566,7 @@ async def review_task(
 ):
     try:
         # 从数据库获取任务
-        task_entity = get_entity_by_field(
-            TABLE_NAMES.TASK, PARTITION_KEYS.PARKEY, str(task_id)
-        )
+        task_entity = get_entity_by_field(TABLE_NAMES.TASK, "id", task_id)
         if not task_entity:
             raise HTTPException(status_code=404, detail="Task not found")
 
@@ -656,9 +638,7 @@ async def provide_task_feedback(
 ):
     try:
         # 从数据库获取任务
-        task_entity = get_entity_by_field(
-            TABLE_NAMES.TASK, PARTITION_KEYS.PARKEY, str(task_id)
-        )
+        task_entity = get_entity_by_field(TABLE_NAMES.TASK, "id", task_id)
         if not task_entity:
             raise HTTPException(status_code=404, detail="Task not found")
 
@@ -705,14 +685,142 @@ async def provide_task_feedback(
 
 
 # 报酬管理
-@router.post("/api/reward/set")
-async def set_reward():
-    return {"message": "Reward set successfully"}
+# 设置指定任务报酬数量
+@router.post("/api/reward/{task_id}/set", response_model=CommonResponseBool)
+async def set_reward(
+    task_id: int, reward_num: float, enterprise_id: str = Depends(verify_oauth_token)
+):
+    try:
+        # 从数据库获取任务
+        task_entity = get_entity_by_field(TABLE_NAMES.TASK, "id", task_id)
+        if not task_entity:
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        # 验证任务是否属于当前企业用户
+        if str(task_entity.get("enterprise_id")) != enterprise_id:
+            raise HTTPException(
+                status_code=403,
+                detail="You don't have permission to set reward for this task",
+            )
+
+        # 检查奖励数量是否为正数
+        if reward_num <= 0:
+            raise HTTPException(
+                status_code=400, detail="Reward must be a positive number"
+            )
+
+        # 更新任务的奖励数量
+        fields_to_update = {
+            "reward_per_unit": reward_num,
+            "updated_at": datetime.now().isoformat(),
+        }
+
+        # 将更新后的任务保存到数据库
+        is_updated = update_entity_fields(
+            TABLE_NAMES.TASK,
+            task_entity["PartitionKey"],
+            task_entity["RowKey"],
+            fields_to_update,
+        )
+
+        if not is_updated:
+            raise HTTPException(status_code=500, detail="Failed to update task reward")
+
+        return CommonResponseBool(result=True)
+    except HTTPException as http_ex:
+        raise http_ex
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while setting task reward: {str(e)}",
+        )
 
 
-@router.post("/api/reward/pay")
-async def pay_reward():
-    return {"message": "Payment initiated"}
+# 任务通过审核后发起支付
+@router.post("/api/reward/{task_id}/pay", response_model=CommonResponseBool)
+async def pay_reward(task_id: int, enterprise_id: str = Depends(verify_oauth_token)):
+    try:
+        # 从数据库获取任务
+        task_entity = get_entity_by_field(TABLE_NAMES.TASK, "id", task_id)
+        if not task_entity:
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        # 验证任务是否属于当前企业用户
+        if str(task_entity.get("enterprise_id")) != enterprise_id:
+            raise HTTPException(
+                status_code=403, detail="You don't have permission to pay for this task"
+            )
+
+        # 检查任务状态是否为已完成
+        if task_entity.get("status") != TaskStatus.COMPLETED.value:
+            raise HTTPException(status_code=400, detail="Task is not completed yet")
+
+        # Mock支付过程
+        # 在实际应用中，这里应该调用真实的支付API
+        payment_successful = True  # 假设支付总是成功的
+
+        if payment_successful:
+            # 更新任务状态为已支付
+            fields_to_update = {
+                "payment_status": PaymentStatus.PAID.value,
+                "updated_at": datetime.now().isoformat(),
+            }
+            is_updated = update_entity_fields(
+                TABLE_NAMES.TASK,
+                task_entity["PartitionKey"],
+                task_entity["RowKey"],
+                fields_to_update,
+            )
+            if not is_updated:
+                raise HTTPException(
+                    status_code=500, detail="Failed to update task payment status"
+                )
+
+            return CommonResponseBool(result=True)
+        else:
+            raise HTTPException(status_code=500, detail="Payment failed")
+
+    except HTTPException as http_ex:
+        raise http_ex
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"An error occurred during payment: {str(e)}"
+        )
+
+
+# 获取支付历史和报酬明细
+@router.get("/api/reward/historys", response_model=TaskListResponse)
+async def get_reward_history(
+    enterprise_id: str = Depends(verify_oauth_token),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(10, ge=1, le=100, description="Number of items per page"),
+):
+    try:
+        # 获取所有已支付的任务
+        search_params = {
+            "enterprise_id": enterprise_id,
+            "payment_status": PaymentStatus.PAID.value,
+        }
+        # 获取所有任务
+        all_paid_tasks, total_count = get_all_entities(
+            TABLE_NAMES.TASK, page, page_size, **search_params
+        )
+
+        reward_history = []
+        for task in all_paid_tasks:
+            # 确保 resources 字段是一个列表
+            task["resources"] = process_task_resources(task["resources"])
+            reward_history.append(Task(**task))
+
+        # Sort reward history by updated_at in descending order
+        reward_history.sort(key=lambda x: x.updated_at, reverse=True)
+
+        return TaskListResponse(total_count=total_count, tasks=reward_history)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while fetching reward history: {str(e)}",
+        )
 
 
 # API接口
