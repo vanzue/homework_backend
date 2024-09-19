@@ -1,13 +1,19 @@
 from fastapi import APIRouter, File, Query, UploadFile, HTTPException, Depends
 from pydantic import HttpUrl
 from auth_token import create_access_token, verify_oauth_token
-from common import process_task_resources, save_refugee_to_database
+from common import (
+    get_user_balance,
+    process_task_resources,
+    save_refugee_to_database,
+    save_withdraw_request,
+)
 from database import (
     get_latest_id_by_partition,
     check_field_exists,
     get_entity_by_field,
     update_entity_fields,
     get_all_entities,
+    insert_entity,
 )
 from schemas import (
     CommonResponseBool,
@@ -23,6 +29,7 @@ from schemas import (
     TaskType,
     Task,
     WithdrawRequest,
+    WithdrawStatus,
     WithdrawStatusResponse,
     PARTITION_KEYS,
     TABLE_NAMES,
@@ -79,6 +86,7 @@ async def register_refugee(refugee: RegisterRefugeeTask):
             email=refugee.email,
             password=hashed_password,
             status=TaskStatus.PENDING,
+            balance=0,
             created_at=datetime.now(),
             updated_at=datetime.now(),
         )
@@ -504,37 +512,48 @@ async def get_task_feedback(task_id: int, userId: str = Depends(verify_oauth_tok
 
 
 # 报酬结算
+# 查看任务收入历史和累计收入。
 @router.get("/api/reward/history", response_model=RewardHistoryResponse)
-async def get_reward_history(userId: str = Depends(verify_oauth_token)):
+async def get_reward_history(
+    userId: str = Depends(verify_oauth_token),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(10, ge=1, le=100, description="Number of items per page"),
+):
     try:
-        # 这里应该从数据库中获取用户的任务收入历史
-        # 为了演示，我们使用模拟数据
-        reward_history = [
-            {
-                "task_id": 1,
-                "task_title": "数据输入：客户信息",
-                "completion_date": datetime.now() - timedelta(days=5),
-                "reward_amount": 175.0,
-            },
-            {
-                "task_id": 3,
-                "task_title": "内容审核：社交媒体帖子",
-                "completion_date": datetime.now() - timedelta(days=1),
-                "reward_amount": 1000.0,
-            },
-        ]
+        # 从数据库中获取用户的任务收入历史
 
-        total_reward = sum(item["reward_amount"] for item in reward_history)
+        # 获取所有任务
+        search_params = {"user_id": userId, "status": TaskStatus.COMPLETED.value}
+        reward_history_entities, total_count = get_all_entities(
+            TABLE_NAMES.TASK, page, page_size, **search_params
+        )
+        reward_history = []
+        total_reward = 0
+
+        for entity in reward_history_entities:
+            reward_item = {
+                "task_id": int(entity.get("id")),
+                "task_title": entity.get("title"),
+                "reward_amount": float(entity.get("reward_per_unit")),
+            }
+            reward_history.append(reward_item)
+            total_reward += reward_item["reward_amount"]
+
         return_data = RewardHistoryResponse(
             reward_history=[RewardHistory(**item) for item in reward_history],
             total_reward=total_reward,
+            total_count=total_count,
         )
         return return_data
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while fetching reward history: {str(e)}",
+        )
 
 
-@router.post("/api/reward/withdraw", response_model=WithdrawRequest)
+# 发起报酬体现
+@router.post("/api/reward/withdraw", response_model=CommonResponseBool)
 async def withdraw_reward(
     amount: float, payment_method: str, user_id: str = Depends(verify_oauth_token)
 ):
@@ -550,53 +569,105 @@ async def withdraw_reward(
                 f"Invalid payment method. Supported methods are: {', '.join(valid_payment_methods)}"
             )
 
-        # 这里应该检查用户的可用余额，并在数据库中记录提现请求
-        # 为了演示，我们假设操作总是成功的
-        # Create a new WithdrawRequest model instance
+        # 检查用户的可用余额
+        user_balance = get_user_balance(user_id)
+        if user_balance < amount:
+            raise ValueError("Insufficient balance for withdrawal")
+
+        # 创建新的提现请求
         withdraw_request = WithdrawRequest(
             user_id=user_id,
             amount=amount,
             payment_method=payment_method,
             request_date=datetime.now(),
-            status="Pending",
+            status=WithdrawStatus.PENDING,
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
         )
+        # 将提现请求保存到数据库
+        saved_request = save_withdraw_request(withdraw_request)
+        # 判断是否写入成功
+        if not saved_request:
+            raise HTTPException(
+                status_code=500, detail="Failed to save withdraw request"
+            )
+        withdrawal_successful = True  # Assume withdrawal is always successful
 
-        # Here you would typically save the withdraw_request to the database
+        if not withdrawal_successful:
+            raise HTTPException(status_code=500, detail="Withdrawal failed")
 
-        return withdraw_request.dict()
+        # 更新提现请求状态
+        fields_to_update = {
+            "status": WithdrawStatus.COMPLETED.value,
+            "updated_at": datetime.now().isoformat(),
+        }
+        update_success = update_entity_fields(
+            TABLE_NAMES.WITHDRAW_REQUEST,
+            saved_request[PARTITION_KEYS.PARKEY],
+            saved_request[PARTITION_KEYS.ROWKEY],
+            fields_to_update,
+        )
+        if not update_success:
+            raise HTTPException(
+                status_code=500, detail="Failed to update withdrawal status"
+            )
+
+        # 更新用户余额
+        new_balance = user_balance - amount
+        fields_to_update = {
+            "balance": new_balance,
+            "updated_at": datetime.now().isoformat(),
+        }
+        is_updated = update_entity_fields(
+            TABLE_NAMES.REFUGEE, user_id, user_id, fields_to_update
+        )
+        if not is_updated:
+            raise HTTPException(status_code=500, detail="Failed to update user balance")
+
+        return CommonResponseBool(result=True)
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 
+# 查看体现的状态和历史记录
 @router.get("/api/reward/withdraw-status", response_model=WithdrawStatusResponse)
-async def get_withdraw_status(user_id: str = Depends(verify_oauth_token)):
+async def get_withdraw_status(
+    user_id: str = Depends(verify_oauth_token),
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(10, ge=1, le=100, description="Number of items per page"),
+):
     try:
-        # 这里应该从数据库中获取用户的提现记录
-        # 为了演示，我们使用模拟数据
-        withdraw_history = [
+        # 从数据库中获取用户的所有提现记录
+        search_params = {"user_id": user_id}
+        withdraw_history, total_count = get_all_entities(
+            TABLE_NAMES.WITHDRAW_REQUEST, page, page_size, **search_params
+        )
+        print(withdraw_history)
+
+        # 转换提现记录为WithdrawRequest对象
+        user_withdrawals = [
             WithdrawRequest(
-                id=1,
-                user_id=user_id,
-                amount=100.0,
-                payment_method="PayPal",
-                request_date=datetime.fromisoformat("2023-05-01T10:00:00"),
-                status="Completed",
-            ),
-            WithdrawRequest(
-                id=2,
-                user_id=user_id,
-                amount=50.0,
-                payment_method="Mobile Money",
-                request_date=datetime.fromisoformat("2023-05-10T14:30:00"),
-                status="Pending",
-            ),
+                id=w["RowKey"],
+                user_id=w["user_id"],
+                amount=float(w["amount"]),
+                payment_method=w["payment_method"],
+                request_date=datetime.fromisoformat(w["request_date"]),
+                status=WithdrawStatus(w["status"]),
+                created_at=datetime.fromisoformat(w["created_at"]),
+                updated_at=datetime.fromisoformat(w["updated_at"]),
+            )
+            for w in withdraw_history
         ]
+
+        # 按请求日期降序排序
+        user_withdrawals.sort(key=lambda x: x.request_date, reverse=True)
+
         result_data = WithdrawStatusResponse(
-            withdraw_history=withdraw_history,
-            pending_withdrawals=[w for w in withdraw_history if w.status == "Pending"],
+            withdraw_history=user_withdrawals,
+            total_count=total_count,
         )
         return result_data
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
