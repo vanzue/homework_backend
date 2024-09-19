@@ -2,18 +2,39 @@ import hashlib
 import json
 from fastapi import APIRouter, Body, Depends, File, UploadFile, Query, HTTPException
 from typing import List, Optional
-from datetime import datetime, timedelta
-
-from jsonschema import ValidationError
+from datetime import datetime
 from auth_token import create_access_token, verify_oauth_token
-from schemas import CommonResponseBool, EnterpriseRegistration, EnterpriseResponse, EnterpriseResponse, LoginEnterpriseResponse, Task, TaskCreateResponse, TaskDifficulty, TaskFeedback, TaskFeedbackInfo, TaskFeedbackResponse, TaskListResponse, TaskProgress, TaskStatus, TaskType, TaskCreate, PARTITION_KEYS, TABLE_NAMES
-from mock_data import get_mock_enterprises, get_mock_tasks
-from database import get_latest_id_by_partition, check_field_exists, insert_entity, get_entity_by_field, update_entity_fields, get_all_entities
+from common import process_task_resources
+from schemas import (
+    CommonResponseBool,
+    EnterpriseRegistration,
+    EnterpriseResponse,
+    EnterpriseResponse,
+    LoginEnterpriseResponse,
+    Task,
+    TaskDifficulty,
+    TaskFeedbackInfo,
+    TaskListResponse,
+    TaskProgress,
+    TaskStatus,
+    TaskType,
+    TaskCreate,
+    PARTITION_KEYS,
+    TABLE_NAMES,
+)
+from database import (
+    get_latest_id_by_partition,
+    insert_entity,
+    get_entity_by_field,
+    update_entity_fields,
+    get_all_entities,
+)
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 router = APIRouter()
+
 
 # 账户管理
 # 企业用户注册，填写公司信息。
@@ -21,22 +42,26 @@ router = APIRouter()
 async def register_enterprise(enterprise: EnterpriseRegistration):
     try:
         # 检查邮箱是否已被注册
-        existing_enterprise = get_entity_by_field(TABLE_NAMES.ENTERPRISE, "email", enterprise.email)
+        existing_enterprise = get_entity_by_field(
+            TABLE_NAMES.ENTERPRISE, "email", enterprise.email
+        )
         if existing_enterprise:
             raise HTTPException(status_code=400, detail="Email already registered")
 
         # 生成新的企业ID
         new_id = get_latest_id_by_partition(TABLE_NAMES.ENTERPRISE, "id")
-        
+
         # 创建新的企业对象
-        hashed_password = hashlib.md5(enterprise.password.encode()).hexdigest() # 使用SHA256进行密码哈希
+        hashed_password = hashlib.md5(
+            enterprise.password.encode()
+        ).hexdigest()  # 使用SHA256进行密码哈希
         new_enterprise = {
             "PartitionKey": TABLE_NAMES.ENTERPRISE,
             "RowKey": str(new_id),  # Convert new_id to string
             "id": str(new_id),  # Convert new_id to string
             "name": enterprise.name,
             "email": enterprise.email,
-            "password": hashed_password,  
+            "password": hashed_password,
             "phone": enterprise.phone,
             "address": enterprise.address,
             "industry": enterprise.industry,
@@ -44,13 +69,15 @@ async def register_enterprise(enterprise: EnterpriseRegistration):
             "legal_representative": enterprise.legal_representative,
             "business_scope": enterprise.business_scope,
             "establishment_date": enterprise.establishment_date.isoformat(),
-            "registered_capital": str(enterprise.registered_capital),  # Convert to string
+            "registered_capital": str(
+                enterprise.registered_capital
+            ),  # Convert to string
             "company_size": enterprise.company_size,
             "website": enterprise.website,
             "logo_url": enterprise.logo_url,
             "description": enterprise.description,
             "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat()
+            "updated_at": datetime.now().isoformat(),
         }
         try:
             # 将新企业添加到Azure表存储
@@ -61,12 +88,20 @@ async def register_enterprise(enterprise: EnterpriseRegistration):
         # 获取新添加的企业数据
         new_enterprise_data = get_entity_by_field(TABLE_NAMES.ENTERPRISE, "id", new_id)
         if not new_enterprise_data:
-            raise HTTPException(status_code=404, detail="Newly created enterprise not found")
-        
+            raise HTTPException(
+                status_code=404, detail="Newly created enterprise not found"
+            )
+
         # 将datetime对象转换为ISO格式字符串
-        new_enterprise_data['establishment_date'] = datetime.fromisoformat(new_enterprise_data['establishment_date']).isoformat()
-        new_enterprise_data['created_at'] = datetime.fromisoformat(new_enterprise_data['created_at']).isoformat()
-        new_enterprise_data['updated_at'] = datetime.fromisoformat(new_enterprise_data['updated_at']).isoformat()
+        new_enterprise_data["establishment_date"] = datetime.fromisoformat(
+            new_enterprise_data["establishment_date"]
+        ).isoformat()
+        new_enterprise_data["created_at"] = datetime.fromisoformat(
+            new_enterprise_data["created_at"]
+        ).isoformat()
+        new_enterprise_data["updated_at"] = datetime.fromisoformat(
+            new_enterprise_data["updated_at"]
+        ).isoformat()
 
         # 转换为EnterpriseResponse对象并返回
         return EnterpriseResponse(**new_enterprise_data)
@@ -76,60 +111,66 @@ async def register_enterprise(enterprise: EnterpriseRegistration):
         # 如果发生错误，抛出HTTP异常
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
+
 @router.post("/api/enterprise/login", response_model=LoginEnterpriseResponse)
 async def login_enterprise(
     email: Optional[str] = None,
     password: Optional[str] = None,
-    oauth_token: Optional[str] = None
+    oauth_token: Optional[str] = None,
 ):
     try:
         access_token = None
         if oauth_token:
             # OAuth认证逻辑
             # 这里应该验证OAuth token并获取企业信息
-            enterprise_id = verify_oauth_token(oauth_token)  # 假设这个函数用于验证OAuth token
+            enterprise_id = verify_oauth_token(
+                oauth_token
+            )  # 假设这个函数用于验证OAuth token
             if enterprise_id is None:
                 raise HTTPException(status_code=401, detail="Invalid or expired token")
             access_token = create_access_token(data={"sub": str(enterprise_id)})
         elif email and password:
             # 邮箱密码认证逻辑
-            enterprise_id = verify_enterprise_credentials(email, password)  # 从数据库中获取认证id
+            enterprise_id = verify_enterprise_credentials(
+                email, password
+            )  # 从数据库中获取认证id
             if not enterprise_id:
                 raise HTTPException(status_code=401, detail="Invalid email or password")
             access_token = create_access_token(data={"sub": str(enterprise_id)})
         else:
             raise HTTPException(status_code=400, detail="Invalid login credentials")
-        
+
         # 返回登录响应
-        return LoginEnterpriseResponse(
-            access_token=access_token,
-            token_type="bearer"
-        )
+        return LoginEnterpriseResponse(access_token=access_token, token_type="bearer")
     except Exception as e:
-        error_message = str(e) if str(e) else "An unexpected error occurred during login"
+        error_message = (
+            str(e) if str(e) else "An unexpected error occurred during login"
+        )
         raise HTTPException(status_code=401, detail=error_message)
 
-#验证邮箱和密码
+
+# 验证邮箱和密码
 def verify_enterprise_credentials(email: str, password: str) -> Optional[int]:
     # 从数据库中获取企业数据
     enterprise = get_entity_by_field(TABLE_NAMES.ENTERPRISE, "email", email)
-    
+
     if enterprise is None:
         return None
-    
+
     # 获取存储的密码哈希
-    stored_password_hash = enterprise.get('password')
-    
+    stored_password_hash = enterprise.get("password")
+
     if not stored_password_hash:
         return None
-    
+
     # 验证密码
     verify_password = hashlib.md5(password.encode()).hexdigest() == stored_password_hash
     if verify_password:
-        return int(enterprise.get('id'))
+        return int(enterprise.get("id"))
     return None
 
-#发送忘记密码邮件，允许密码重置
+
+# 发送忘记密码邮件，允许密码重置
 @router.get("/api/enterprise/forgot-password")
 async def forgot_password(email: str):
     try:
@@ -139,7 +180,7 @@ async def forgot_password(email: str):
             raise HTTPException(status_code=404, detail="Email not found")
 
         # 生成重置令牌
-        reset_token = create_access_token(data={"sub": str(enterprise['id'])})
+        reset_token = create_access_token(data={"sub": str(enterprise["id"])})
 
         # 构建重置链接
         reset_link = f"https://yourwebsite.com/reset-password?token={reset_token}"
@@ -155,7 +196,8 @@ async def forgot_password(email: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
-#发送email方法
+
+# 发送email方法
 def send_email(to_email: str, subject: str, body: str):
     # Email configuration
     smtp_server = "smtp.example.com"  # Replace with your SMTP server
@@ -178,46 +220,58 @@ def send_email(to_email: str, subject: str, body: str):
         with smtplib.SMTP(smtp_server, smtp_port) as server:
             server.starttls()  # Enable TLS
             server.login(smtp_username, smtp_password)
-            
+
             # Send email
             server.send_message(message)
-        
+
         print(f"Email sent successfully to {to_email}")
     except Exception as e:
         print(f"Failed to send email: {str(e)}")
         raise
 
-#更新企业信息
+
+# 更新企业信息
 @router.put("/api/enterprise/update-profile", response_model=EnterpriseResponse)
 async def update_enterprise_profile(
     enterprise_update: EnterpriseResponse,
-    enterprise_id: str = Depends(verify_oauth_token)
+    enterprise_id: str = Depends(verify_oauth_token),
 ):
     try:
         # 从数据库获取现有企业信息
-        existing_enterprise = get_entity_by_field(TABLE_NAMES.ENTERPRISE, PARTITION_KEYS.ROWKEY, enterprise_id)
+        existing_enterprise = get_entity_by_field(
+            TABLE_NAMES.ENTERPRISE, PARTITION_KEYS.ROWKEY, enterprise_id
+        )
         print(existing_enterprise)
         if not existing_enterprise:
             raise HTTPException(status_code=404, detail="Enterprise not found")
 
-        updated_enterprise = {**existing_enterprise, **enterprise_update.dict(exclude_unset=True)}
+        updated_enterprise = {
+            **existing_enterprise,
+            **enterprise_update.dict(exclude_unset=True),
+        }
         if enterprise_update.email:
-            if enterprise_update.email != existing_enterprise['email'] and get_entity_by_field(TABLE_NAMES.ENTERPRISE, "email", enterprise_update.email):
+            if enterprise_update.email != existing_enterprise[
+                "email"
+            ] and get_entity_by_field(
+                TABLE_NAMES.ENTERPRISE, "email", enterprise_update.email
+            ):
                 raise HTTPException(status_code=400, detail="Email already exists")
-            updated_enterprise['email'] = enterprise_update.email
+            updated_enterprise["email"] = enterprise_update.email
 
         # 更新企业信息
-        updated_enterprise['updated_at'] = datetime.utcnow().isoformat()
+        updated_enterprise["updated_at"] = datetime.utcnow().isoformat()
 
         # 保存更新后的企业信息到数据库
         update_success = update_entity_fields(
-            TABLE_NAMES.ENTERPRISE, 
-            existing_enterprise[PARTITION_KEYS.PARKEY], 
-            existing_enterprise[PARTITION_KEYS.ROWKEY], 
-            updated_enterprise
+            TABLE_NAMES.ENTERPRISE,
+            existing_enterprise[PARTITION_KEYS.PARKEY],
+            existing_enterprise[PARTITION_KEYS.ROWKEY],
+            updated_enterprise,
         )
         if not update_success:
-            raise HTTPException(status_code=500, detail="Failed to update enterprise profile")
+            raise HTTPException(
+                status_code=500, detail="Failed to update enterprise profile"
+            )
 
         # Convert the updated_enterprise dictionary to an EnterpriseResponse object
         enterprise_response = EnterpriseResponse(**updated_enterprise)
@@ -227,28 +281,36 @@ async def update_enterprise_profile(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
+
 # 任务管理
 @router.post("/api/task/batch-upload")
 async def batch_upload_tasks(files: List[UploadFile] = File(...)):
     return {"message": f"{len(files)} tasks uploaded successfully"}
 
-#创建单个任务
+
+# 创建单个任务
 @router.post("/api/task/create", response_model=Task)
-async def create_task(task: TaskCreate, enterprise_id: str = Depends(verify_oauth_token)):
+async def create_task(
+    task: TaskCreate, enterprise_id: str = Depends(verify_oauth_token)
+):
     try:
         # 验证企业用户
-        enterprise = get_entity_by_field(TABLE_NAMES.ENTERPRISE, PARTITION_KEYS.ROWKEY, enterprise_id)
+        enterprise = get_entity_by_field(
+            TABLE_NAMES.ENTERPRISE, PARTITION_KEYS.ROWKEY, enterprise_id
+        )
         if not enterprise:
             raise HTTPException(status_code=404, detail="Enterprise not found")
 
         # 验证任务标题是否已存在
         existing_task = get_entity_by_field(TABLE_NAMES.TASK, "title", task.title)
         if existing_task:
-            raise HTTPException(status_code=400, detail="A task with this title already exists")
-        
+            raise HTTPException(
+                status_code=400, detail="A task with this title already exists"
+            )
+
         # 生成新的任务ID
         new_id = get_latest_id_by_partition(TABLE_NAMES.TASK, PARTITION_KEYS.PARKEY)
-        
+
         # 创建新任务
         new_task = Task(
             id=new_id,
@@ -266,22 +328,24 @@ async def create_task(task: TaskCreate, enterprise_id: str = Depends(verify_oaut
             created_at=datetime.now(),
             updated_at=datetime.now(),
             review_comment="",
-            rating=0
+            rating=0,
         )
         # 将新任务保存到数据库
         task_entity = {
             PARTITION_KEYS.PARKEY: str(new_task.id),
             PARTITION_KEYS.ROWKEY: str(new_task.id),
-            **new_task.dict()
+            **new_task.dict(),
         }
         # Convert list fields to JSON strings
-        if 'resources' in task_entity:
-            task_entity['resources'] = json.dumps([str(resource) for resource in task_entity['resources']])
-        
+        if "resources" in task_entity:
+            task_entity["resources"] = json.dumps(
+                [str(resource) for resource in task_entity["resources"]]
+            )
+
         insert_task = insert_entity(TABLE_NAMES.TASK, task_entity)
         if not insert_task:
             raise HTTPException(status_code=500, detail="Failed to create task")
-        
+
         # Convert the insert_task response to a Task object
         created_task = Task(
             id=new_task.id,
@@ -296,20 +360,24 @@ async def create_task(task: TaskCreate, enterprise_id: str = Depends(verify_oaut
             total_units=new_task.total_units,
             completed_units=new_task.completed_units,
             resources=new_task.resources,
-            created_at=datetime.fromisoformat(insert_task['date'].isoformat()),
-            updated_at=datetime.fromisoformat(insert_task['date'].isoformat()),
+            created_at=datetime.fromisoformat(insert_task["date"].isoformat()),
+            updated_at=datetime.fromisoformat(insert_task["date"].isoformat()),
             review_comment=new_task.review_comment,
-            rating=new_task.rating
+            rating=new_task.rating,
         )
-        
+
         return created_task
     except HTTPException as http_ex:
         raise http_ex
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An error occurred while creating the task: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while creating the task: {str(e)}",
+        )
 
-#获取企业发布的任务列表
-@router.get("/api/enterprise/tasks", response_model=TaskListResponse)
+
+# 获取企业发布的任务列表
+@router.get("/api/task/tasks", response_model=TaskListResponse)
 async def list_enterprise_tasks(
     enterprise_id: int = Depends(verify_oauth_token),
     status: Optional[TaskStatus] = Query(None),
@@ -318,7 +386,7 @@ async def list_enterprise_tasks(
     min_reward: Optional[float] = Query(None, ge=0),
     max_reward: Optional[float] = Query(None, ge=0),
     page: int = Query(1, ge=1),
-    page_size: int = Query(10, ge=1, le=100)
+    page_size: int = Query(10, ge=1, le=100),
 ):
     try:
         # 构建查询参数
@@ -335,236 +403,324 @@ async def list_enterprise_tasks(
             search_params["reward_per_unit__le"] = max_reward
 
         # 从数据库获取企业发布的任务列表
-        all_tasks, total_count = get_all_entities(TABLE_NAMES.TASK, page, page_size, **search_params)
+        all_tasks, total_count = get_all_entities(
+            TABLE_NAMES.TASK, page, page_size, **search_params
+        )
         # 将原始实体转换为Task对象
         tasks = []
         for task in all_tasks:
-            if isinstance(task.get('resources'), str) and task['resources'].startswith('[') and task['resources'].endswith(']'):
-                try:
-                    task['resources'] = json.loads(task['resources'])
-                except json.JSONDecodeError:
-                    task['resources'] = [task['resources']]
-            elif isinstance(task.get('resources'), str):
-                task['resources'] = [task['resources']]
-            elif task.get('resources') is None:
-                task['resources'] = []
-            elif not isinstance(task.get('resources'), list):
-                task['resources'] = list(task['resources'])
-
+            task["resources"] = process_task_resources(task.get("resources"))
             tasks.append(Task(**task))
 
-        return TaskListResponse(
-            total_count=total_count,
-            tasks=tasks
-        )
+        return TaskListResponse(total_count=total_count, tasks=tasks)
     except HTTPException as http_ex:
         raise http_ex
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An error occurred while fetching enterprise tasks: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while fetching enterprise tasks: {str(e)}",
+        )
 
-#查看任务实时进度
+
+# 查看任务实时进度
 @router.get("/api/task/{task_id}/progress", response_model=TaskProgress)
-async def get_task_progress(task_id: int):
+async def get_task_progress(
+    task_id: int, enterprise_id: str = Depends(verify_oauth_token)
+):
     try:
         # 从数据库获取任务信息
-        task = await get_task_from_database(task_id)
-        if not task:
+        task_entity = get_entity_by_field(
+            TABLE_NAMES.TASK, PARTITION_KEYS.PARKEY, str(task_id)
+        )
+        if not task_entity:
             raise HTTPException(status_code=404, detail="Task not found")
-        
+
+        # 验证任务是否属于当前企业用户
+        if str(task_entity.get("enterprise_id")) != enterprise_id:
+            raise HTTPException(
+                status_code=403,
+                detail="You don't have permission to view this task's progress",
+            )
+
+        # 将原始实体转换为Task对象
+        task_entity["resources"] = process_task_resources(task_entity.get("resources"))
+        task = Task(**task_entity)
+
         # 计算进度百分比
-        progress_percentage = (task.completed_units / task.total_units) * 100 if task.total_units > 0 else 0
-        
-        # 估算完成时间（如果有足够的数据）
-        estimated_completion_time = None
-        if task.created_at and task.completed_units > 0:
-            time_elapsed = datetime.now() - task.created_at
-            units_per_second = task.completed_units / time_elapsed.total_seconds()
-            remaining_units = task.total_units - task.completed_units
-            if units_per_second > 0:
-                estimated_seconds = remaining_units / units_per_second
-                estimated_completion_time = datetime.now() + timedelta(seconds=estimated_seconds)
-        
+        progress_percentage = (
+            (task.completed_units / task.total_units) * 100
+            if task.total_units > 0
+            else 0
+        )
+
         task_progress = TaskProgress(
             task_id=task_id,
             completed_units=task.completed_units,
             total_units=task.total_units,
             progress_percentage=progress_percentage,
-            estimated_completion_time=estimated_completion_time
+            status=task.status,
         )
         return task_progress
     except HTTPException as http_ex:
         raise http_ex
     except Exception as e:
-        # 如果发生错误，返回适当的错误响应
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while fetching task progress: {str(e)}",
+        )
 
-async def get_task_from_database(task_id: int) -> Task:
-    # 这里应该是从数据库获取任务的实际逻辑
-    # 为了演示，我们使用模拟数据
-    tasks = get_mock_tasks()
-    task = next((t for t in tasks if t.id == task_id), None)
-    if task:
-        return task
-    return None
 
-#暂停任务
+# 暂停任务
 @router.put("/api/task/{task_id}/pause", response_model=CommonResponseBool)
-async def pause_task(task_id: int):
+async def pause_task(task_id: int, enterprise_id: str = Depends(verify_oauth_token)):
     try:
         # 从数据库获取任务
-        task = await get_task_from_database(task_id)
-        if not task:
+        task_entity = get_entity_by_field(
+            TABLE_NAMES.TASK, PARTITION_KEYS.PARKEY, str(task_id)
+        )
+        if not task_entity:
             raise HTTPException(status_code=404, detail="Task not found")
 
+        # 验证任务是否属于当前企业用户
+        if str(task_entity.get("enterprise_id")) != enterprise_id:
+            raise HTTPException(
+                status_code=403, detail="You don't have permission to pause this task"
+            )
+
         # 检查任务是否可以暂停
-        if task.status not in [TaskStatus.IN_PROGRESS, TaskStatus.PENDING]:
-            raise HTTPException(status_code=400, detail="Task cannot be paused in its current state")
+        current_status = task_entity.get("status")
+        if current_status not in [
+            TaskStatus.IN_PROGRESS.value,
+            TaskStatus.PENDING.value,
+        ]:
+            raise HTTPException(
+                status_code=400, detail="Task cannot be paused in its current state"
+            )
 
         # 更新任务状态为暂停
-        task.status = TaskStatus.PAUSED
-        task.updated_at = datetime.now()
+        fields_to_update = {
+            "status": TaskStatus.PAUSED.value,
+            "updated_at": datetime.now().isoformat(),
+        }
 
         # 将更新后的任务保存到数据库
-        is_paused = await update_task_in_database(task)
+        is_paused = update_entity_fields(
+            TABLE_NAMES.TASK,
+            task_entity["PartitionKey"],
+            task_entity["RowKey"],
+            fields_to_update,
+        )
 
         if not is_paused:
             raise HTTPException(status_code=500, detail="Failed to pause the task")
 
-        return CommonResponseBool(
-            result=is_paused,
-        )
+        return CommonResponseBool(result=is_paused)
     except HTTPException as http_ex:
         raise http_ex
     except Exception as e:
-        # 如果发生错误，返回适当的错误响应
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while pausing the task: {str(e)}",
+        )
 
-async def update_task_in_database(task: Task) -> bool:
-    # 这里应该是更新数据库中任务的实际逻辑
-    # 为了演示，我们假设更新总是成功的
-    return True
 
-#取消任务
+# 取消任务
 @router.delete("/api/task/{task_id}/cancel", response_model=CommonResponseBool)
-async def cancel_task(task_id: int):
+async def cancel_task(task_id: int, enterprise_id: str = Depends(verify_oauth_token)):
     try:
         # 从数据库获取任务
-        task = await get_task_from_database(task_id)
-        if not task:
+        task_entity = get_entity_by_field(
+            TABLE_NAMES.TASK, PARTITION_KEYS.PARKEY, str(task_id)
+        )
+        if not task_entity:
             raise HTTPException(status_code=404, detail="Task not found")
 
+        # 验证任务是否属于当前企业用户
+        if str(task_entity.get("enterprise_id")) != enterprise_id:
+            raise HTTPException(
+                status_code=403, detail="You don't have permission to cancel this task"
+            )
+
         # 检查任务是否可以取消
-        if task.status == TaskStatus.COMPLETED or task.status == TaskStatus.CANCELLED:
-            raise HTTPException(status_code=400, detail="Task cannot be cancelled in its current state")
+        current_status = TaskStatus(task_entity.get("status"))
+        if current_status in [TaskStatus.COMPLETED, TaskStatus.CANCELLED]:
+            raise HTTPException(
+                status_code=400, detail="Task cannot be cancelled in its current state"
+            )
 
         # 更新任务状态为取消
-        task.status = TaskStatus.CANCELLED
-        task.updated_at = datetime.now()
+        fields_to_update = {
+            "status": TaskStatus.CANCELLED.value,
+            "updated_at": datetime.now().isoformat(),
+        }
 
         # 将更新后的任务保存到数据库
-        is_cancelled = await update_task_in_database(task)
+        is_cancelled = update_entity_fields(
+            TABLE_NAMES.TASK,
+            task_entity["PartitionKey"],
+            task_entity["RowKey"],
+            fields_to_update,
+        )
 
         if not is_cancelled:
             raise HTTPException(status_code=500, detail="Failed to cancel the task")
 
-        return CommonResponseBool(
-            result=is_cancelled,
-        )
+        return CommonResponseBool(result=is_cancelled)
     except HTTPException as http_ex:
         raise http_ex
     except Exception as e:
-        # 如果发生错误，返回适当的错误响应
-        raise HTTPException(status_code=500, detail=str(e))
-    
-#审核已完成的任务结果，决定是否验收
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while cancelling the task: {str(e)}",
+        )
+
+
+# 审核已完成的任务结果，决定是否验收
 @router.post("/api/task/{task_id}/review", response_model=CommonResponseBool)
-async def review_task(task_id: int, is_accepted: bool):
+async def review_task(
+    task_id: int, is_accepted: bool, enterprise_id: str = Depends(verify_oauth_token)
+):
     try:
         # 从数据库获取任务
-        task = await get_task_from_database(task_id)
-        if not task:
+        task_entity = get_entity_by_field(
+            TABLE_NAMES.TASK, PARTITION_KEYS.PARKEY, str(task_id)
+        )
+        if not task_entity:
             raise HTTPException(status_code=404, detail="Task not found")
 
+        # 验证任务是否属于当前企业用户
+        if str(task_entity.get("enterprise_id")) != enterprise_id:
+            raise HTTPException(
+                status_code=403, detail="You don't have permission to review this task"
+            )
+
         # 检查任务是否可以被审核
-        if task.status != TaskStatus.IN_PROGRESS:
-            raise HTTPException(status_code=400, detail="Task is not in progress and cannot be reviewed")
+        current_status = TaskStatus(task_entity.get("status"))
+        if current_status != TaskStatus.IN_PROGRESS:
+            raise HTTPException(
+                status_code=400, detail="Task is not in progress and cannot be reviewed"
+            )
 
-        if is_accepted:
-            task.status = TaskStatus.COMPLETED
-        else:
-            task.status = TaskStatus.IN_PROGRESS
+        # 获取任务的总数量和已完成数量
+        total_units = task_entity.get("total_units", 0)
+        completed_units = task_entity.get("completed_units", 0)
 
-        # 更新任务的审核信息
-        task.updated_at = datetime.now()
+        # 检查是否所有单元都已完成
+        if completed_units < total_units:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Not all task units are completed. Completed: {completed_units}/{total_units}",
+            )
+
+        # 更新任务状态和审核信息
+        fields_to_update = {
+            "status": (
+                TaskStatus.COMPLETED.value
+                if is_accepted
+                else TaskStatus.IN_PROGRESS.value
+            ),
+            "updated_at": datetime.now().isoformat(),
+        }
 
         # 将更新后的任务保存到数据库
-        is_updated = await update_task_in_database(task)
+        is_updated = update_entity_fields(
+            TABLE_NAMES.TASK,
+            task_entity["PartitionKey"],
+            task_entity["RowKey"],
+            fields_to_update,
+        )
 
         if not is_updated:
-            raise HTTPException(status_code=500, detail="Failed to update the task after review")
+            raise HTTPException(
+                status_code=500, detail="Failed to update the task after review"
+            )
 
-        result_data = CommonResponseBool(
-            result=True
-        )
-        return result_data
+        # 如果任务被接受，可以在这里添加奖励发放的逻辑
+
+        return CommonResponseBool(result=True)
     except HTTPException as http_ex:
         raise http_ex
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while reviewing the task: {str(e)}",
+        )
 
-#提供任务结果反馈和评分
+
+# 提供任务结果反馈和评分
 @router.post("/api/task/{task_id}/feedback", response_model=CommonResponseBool)
-async def provide_task_feedback(task_id: int, feedback: TaskFeedbackInfo):
+async def provide_task_feedback(
+    task_id: int,
+    feedback: TaskFeedbackInfo,
+    enterprise_id: str = Depends(verify_oauth_token),
+):
     try:
-        # 检查任务是否存在
-        task = await get_task_from_database(task_id)
-        if not task:
+        # 从数据库获取任务
+        task_entity = get_entity_by_field(
+            TABLE_NAMES.TASK, PARTITION_KEYS.PARKEY, str(task_id)
+        )
+        if not task_entity:
             raise HTTPException(status_code=404, detail="Task not found")
 
+        # 验证任务是否属于当前企业用户
+        if str(task_entity.get("enterprise_id")) != enterprise_id:
+            raise HTTPException(
+                status_code=403,
+                detail="You don't have permission to provide feedback for this task",
+            )
+
         # 检查任务状态是否为已完成
-        if task.status != TaskStatus.COMPLETED:
+        current_status = TaskStatus(task_entity.get("status"))
+        if current_status != TaskStatus.COMPLETED:
             raise HTTPException(status_code=400, detail="Task is not completed yet")
 
         # 更新任务的审核信息
-        task.review_comment = feedback.review_comment
-        task.rating = feedback.rating
-        task.updated_at = datetime.now()
-        
-        is_updated = await update_task_in_database(task)
-        if not is_updated:
-            raise HTTPException(status_code=500, detail="Failed to update task with feedback")
+        fields_to_update = {
+            "review_comment": feedback.review_comment,
+            "rating": feedback.rating,
+            "updated_at": datetime.now().isoformat(),
+        }
 
-        result_data = CommonResponseBool(
-            result=True
+        # 将更新后的任务保存到数据库
+        is_updated = update_entity_fields(
+            TABLE_NAMES.TASK,
+            task_entity["PartitionKey"],
+            task_entity["RowKey"],
+            fields_to_update,
         )
-        return result_data
+
+        if not is_updated:
+            raise HTTPException(
+                status_code=500, detail="Failed to update task with feedback"
+            )
+
+        return CommonResponseBool(result=True)
     except HTTPException as http_ex:
         raise http_ex
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"An error occurred while providing task feedback: {str(e)}",
+        )
+
 
 # 报酬管理
 @router.post("/api/reward/set")
 async def set_reward():
     return {"message": "Reward set successfully"}
 
+
 @router.post("/api/reward/pay")
 async def pay_reward():
     return {"message": "Payment initiated"}
+
 
 # API接口
 @router.post("/api/task/integrate")
 async def integrate_task():
     return {"message": "Task integration successful"}
 
+
 @router.get("/api/task/status-callback")
 async def task_status_callback():
     return {"message": "Task status updated"}
-
-@router.get("/api/task/{task_id}/details", response_model=Task)
-async def get_task_details(task_id: int):
-    tasks = get_mock_tasks()
-    task = next((task for task in tasks if task.id == task_id), None)
-    if task is None:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return task

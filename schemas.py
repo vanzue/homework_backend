@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Optional, Union
 from typing import Optional, List
 
+
 class TABLE_NAMES:
     REFUGEE = "Refugee"
     ENTERPRISE = "Enterprise"
@@ -11,9 +12,11 @@ class TABLE_NAMES:
     REWARD_HISTORY = "RewardHistory"
     WITHDRAW_REQUEST = "WithdrawRequest"
 
+
 class PARTITION_KEYS:
     PARKEY = "PartitionKey"
     ROWKEY = "RowKey"
+
 
 class TaskStatus(str, Enum):
     PENDING = "pending"  # 待处理
@@ -22,29 +25,34 @@ class TaskStatus(str, Enum):
     PAUSED = "paused"  # 已暂停
     CANCELLED = "cancelled"  # 已取消
 
+
 class TaskType(str, Enum):
     DATA_ENTRY = "data_entry"
     IMAGE_LABELING = "image_labeling"
     CONTENT_MODERATION = "content_moderation"
     TRANSLATION = "translation"
 
+
 class TaskDifficulty(str, Enum):
     EASY = "easy"
     MEDIUM = "medium"
     HARD = "hard"
 
+
 class TaskBase(BaseModel):
     title: str
     description: str
     type: TaskType
-    difficulty: TaskDifficulty
-    deadline: Optional[datetime]
-    reward_per_unit: float
-    total_units: int
+    difficulty: TaskDifficulty  # 难度
+    deadline: Optional[datetime]  # 最后期限
+    reward_per_unit: float  # 奖励
+    total_units: int  # 总的任务数
     resources: List[HttpUrl]  # Added resources field
+
 
 class TaskCreate(TaskBase):
     pass
+
 
 class Task(TaskBase):
     id: int
@@ -53,26 +61,34 @@ class Task(TaskBase):
     status: TaskStatus
     created_at: datetime
     updated_at: datetime
-    completed_units: int = 0
-    review_comment: str
-    rating: Optional[float] = Field(None, ge=0, le=5, description="Task rating from 0 to 5")
+    completed_units: int = 0  # 已完成的任务数
+    review_comment: str  # 任务反馈
+    rating: Optional[float] = Field(
+        None, ge=0, le=5, description="Task rating from 0 to 5"
+    )  # 评分
+
 
 class TaskListResponse(BaseModel):
     total_count: int
     tasks: List[Task]
 
+
 class TaskCreateResponse(BaseModel):
     task: Task
     message: str
 
+
 class CommonResponseBool(BaseModel):
     result: bool
+
+
 class TaskProgress(BaseModel):
     task_id: int
     completed_units: int
     total_units: int
     progress_percentage: float
     estimated_completion_time: Optional[datetime]
+
 
 class RefugeeTask(BaseModel):
     user_id: int
@@ -84,6 +100,7 @@ class RefugeeTask(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
+
 class RegisterRefugeeTask(BaseModel):
     username: str
     password: str
@@ -92,35 +109,42 @@ class RegisterRefugeeTask(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
+
 class LoginResponse(BaseModel):
     userId: int
     username: str
     access_token: str
     token_type: str
 
+
 class TaskFeedbackInfo(BaseModel):
     review_comment: str
     rating: float
+
 
 class TaskFeedbackInfoGet(BaseModel):
     review_comment: str
     status: TaskStatus
 
+
 class TaskFeedback(BaseModel):
     task_id: int
     feedback: TaskFeedbackInfo
+
 
 class TaskProgress(BaseModel):
     task_id: int
     completed_units: int
     total_units: int
     progress_percentage: float
-    estimated_completion_time: Optional[datetime] = None
+    status: TaskStatus
+
 
 class TaskFeedbackResponse(BaseModel):
     task_id: int
     feedback: TaskFeedbackInfo
     message: str
+
 
 class RewardHistory(BaseModel):
     task_id: int
@@ -128,9 +152,11 @@ class RewardHistory(BaseModel):
     completion_date: datetime
     reward_amount: float
 
+
 class RewardHistoryResponse(BaseModel):
     reward_history: List[RewardHistory]
     total_reward: float
+
 
 class WithdrawRequest(BaseModel):
     user_id: str
@@ -139,15 +165,17 @@ class WithdrawRequest(BaseModel):
     request_date: datetime
     status: str
 
+
 class WithdrawStatusResponse(BaseModel):
     withdraw_history: List[WithdrawRequest]
     pending_withdrawals: List[WithdrawRequest]
+
 
 class EnterpriseRegistration(BaseModel):
     name: str  # 企业名称
     email: str  # 企业邮箱
     phone: str  # 企业联系电话
-    password: str # 企业密码
+    password: str  # 企业密码
     address: str  # 企业地址
     industry: str  # 所属行业
     registration_number: str  # 企业注册号
@@ -159,6 +187,7 @@ class EnterpriseRegistration(BaseModel):
     website: Optional[str] = None  # 企业官网（可选）
     logo_url: Optional[str] = None  # 企业logo URL（可选）
     description: Optional[str] = None  # 企业简介（可选）
+
 
 class EnterpriseResponse(BaseModel):
     id: int  # 企业ID，由系统自动生成
@@ -179,9 +208,7 @@ class EnterpriseResponse(BaseModel):
     created_at: datetime  # 记录创建时间
     updated_at: datetime  # 记录最后更新时间
 
+
 class LoginEnterpriseResponse(BaseModel):
     access_token: str
     token_type: str
-
-
-

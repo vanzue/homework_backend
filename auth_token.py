@@ -10,12 +10,14 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Token失效时间为30分钟
 REFRESH_TOKEN_EXPIRE_DAYS = 1
 
+
 def create_access_token(data: dict):
     to_encode = data.copy()
     # expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
 
 def verify_oauth_token(token: str = Depends(oauth2_scheme)):
     credentials_exception = HTTPException(

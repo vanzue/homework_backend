@@ -1,8 +1,19 @@
 from datetime import datetime, timedelta
 import random
-from schemas import EnterpriseRegistration, EnterpriseResponse, RefugeeTask, RegisterRefugeeTask, Task, TaskStatus, TaskType, TaskDifficulty, TaskProgress
+from schemas import (
+    EnterpriseRegistration,
+    EnterpriseResponse,
+    RefugeeTask,
+    RegisterRefugeeTask,
+    Task,
+    TaskStatus,
+    TaskType,
+    TaskDifficulty,
+    TaskProgress,
+)
 from pydantic import HttpUrl
 import hashlib
+
 
 def get_mock_tasks():
     now = datetime.now()
@@ -23,7 +34,7 @@ def get_mock_tasks():
             completed_units=350,
             resources=[HttpUrl("https://example.com/customer_info_template.pdf")],
             review_comment="",
-            rating=0
+            rating=0,
         ),
         Task(
             id=2,
@@ -41,7 +52,7 @@ def get_mock_tasks():
             completed_units=0,
             resources=[HttpUrl("https://example.com/street_scene_images.zip")],
             review_comment="",
-            rating=0
+            rating=0,
         ),
         Task(
             id=3,
@@ -59,9 +70,10 @@ def get_mock_tasks():
             completed_units=10000,
             resources=[HttpUrl("https://example.com/social_media_posts.json")],
             review_comment="任务完成得很好，所有帖子都已正确审核。",
-            rating=4.8
+            rating=4.8,
         ),
     ]
+
 
 def get_mock_task_progress(task_id: int) -> TaskProgress:
     progress_data = {
@@ -70,24 +82,25 @@ def get_mock_task_progress(task_id: int) -> TaskProgress:
             completed_units=350,
             total_units=1000,
             progress_percentage=35.0,
-            estimated_completion_time=datetime.now() + timedelta(days=2)
+            estimated_completion_time=datetime.now() + timedelta(days=2),
         ),
         2: TaskProgress(
             task_id=2,
             completed_units=0,
             total_units=5000,
             progress_percentage=0.0,
-            estimated_completion_time=datetime.now() + timedelta(days=14)
+            estimated_completion_time=datetime.now() + timedelta(days=14),
         ),
         3: TaskProgress(
             task_id=3,
             completed_units=10000,
             total_units=10000,
             progress_percentage=100.0,
-            estimated_completion_time=None
-        )
+            estimated_completion_time=None,
+        ),
     }
     return progress_data.get(task_id)
+
 
 def get_mock_enterprises():
     now = datetime.now()
@@ -103,14 +116,14 @@ def get_mock_enterprises():
             registration_number="TI12345678",
             legal_representative="John Doe",
             business_scope="Software Development, AI Research",
-            establishment_date=now - timedelta(days=365*5),
+            establishment_date=now - timedelta(days=365 * 5),
             registered_capital=1000000.00,
             company_size="Medium",
             website="https://www.techinnovations.com",
             logo_url="https://www.techinnovations.com/logo.png",
             description="Leading the way in innovative tech solutions",
             created_at=now - timedelta(days=30),
-            updated_at=now
+            updated_at=now,
         ),
         EnterpriseResponse(
             id=2,
@@ -123,14 +136,14 @@ def get_mock_enterprises():
             registration_number="GES87654321",
             legal_representative="Jane Smith",
             business_scope="Solar Panel Manufacturing, Wind Turbine Installation",
-            establishment_date=now - timedelta(days=365*3),
+            establishment_date=now - timedelta(days=365 * 3),
             registered_capital=5000000.00,
             company_size="Large",
             website="https://www.greenenergysolutions.com",
             logo_url="https://www.greenenergysolutions.com/logo.png",
             description="Powering a sustainable future",
             created_at=now - timedelta(days=60),
-            updated_at=now - timedelta(days=7)
+            updated_at=now - timedelta(days=7),
         ),
         EnterpriseResponse(
             id=3,
@@ -150,9 +163,10 @@ def get_mock_enterprises():
             logo_url=None,
             description="Your cozy neighborhood cafe",
             created_at=now - timedelta(days=10),
-            updated_at=now
-        )
+            updated_at=now,
+        ),
     ]
+
 
 def get_mock_refugee_tasks():
     now = datetime.now()
@@ -164,7 +178,7 @@ def get_mock_refugee_tasks():
             phone="+1 (555) 123-4567",
             email="test1@example.com",
             created_at=now - timedelta(days=30),
-            updated_at=now - timedelta(days=25)
+            updated_at=now - timedelta(days=25),
         ),
         RefugeeTask(
             user_id=2,
@@ -173,7 +187,7 @@ def get_mock_refugee_tasks():
             phone="+1 (555) 987-6543",
             email="test2@example.com",
             created_at=now - timedelta(days=20),
-            updated_at=now - timedelta(days=18)
+            updated_at=now - timedelta(days=18),
         ),
         RefugeeTask(
             user_id=3,
@@ -182,8 +196,6 @@ def get_mock_refugee_tasks():
             phone="+1 (555) 246-8135",
             email="test3@example.com",
             created_at=now - timedelta(days=15),
-            updated_at=now - timedelta(days=10)
-        )
+            updated_at=now - timedelta(days=10),
+        ),
     ]
-
-
