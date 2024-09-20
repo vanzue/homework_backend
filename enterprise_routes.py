@@ -31,9 +31,6 @@ from database import (
     update_entity_fields,
     get_all_entities,
 )
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 
 router = APIRouter()
 

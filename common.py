@@ -5,15 +5,9 @@ import json
 import smtplib
 from typing import Optional
 import uuid
-
-from fastapi import HTTPException
 from database import (
-    get_latest_id_by_partition,
-    check_field_exists,
     insert_entity,
     get_entity_by_field,
-    update_entity_fields,
-    get_all_entities,
 )
 from schemas import PARTITION_KEYS, TABLE_NAMES, RefugeeTask, WithdrawRequest
 

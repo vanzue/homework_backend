@@ -1,6 +1,5 @@
 import uuid
-from fastapi import APIRouter, File, Query, UploadFile, HTTPException, Depends
-from pydantic import HttpUrl
+from fastapi import APIRouter, Query, HTTPException, Depends
 from auth_token import create_access_token, verify_oauth_token
 from common import (
     get_user_balance,
@@ -35,8 +34,8 @@ from schemas import (
     TABLE_NAMES,
     RewardRequest,
 )
-from datetime import datetime, timedelta
-from typing import Optional, List
+from datetime import datetime
+from typing import Optional
 from fastapi.security import OAuth2PasswordBearer
 import hashlib
 
