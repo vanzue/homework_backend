@@ -11,14 +11,17 @@ app = FastAPI()
 app.include_router(enterprise_router)
 app.include_router(refugee_router)
 
+
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
+
 
 if __name__ == "__main__":
     logger.info("Debug: Entering main block")
     try:
         import uvicorn
+
         logger.info("Debug: About to run uvicorn")
         uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
     except Exception as e:
