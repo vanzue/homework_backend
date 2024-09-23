@@ -71,6 +71,7 @@ class Task(TaskBase):
     updated_at: datetime
     completed_units: int = 0  # 已完成的任务数
     review_comment: str  # 任务反馈
+    task_comments: List[str] = []  # 任务commits
     rating: Optional[float] = Field(
         None, ge=0, le=5, description="Task rating from 0 to 5"
     )  # 评分
