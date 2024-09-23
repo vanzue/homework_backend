@@ -1,5 +1,5 @@
 import uuid
-from fastapi import APIRouter, Query, HTTPException, Depends
+from fastapi import APIRouter, Body, Query, HTTPException, Depends
 from auth_token import create_access_token, verify_oauth_token
 from common import (
     get_user_balance,
@@ -383,7 +383,7 @@ async def get_my_tasks(
         all_tasks, total_count = get_all_entities(
             TABLE_NAMES.TASK, page, page_size, **search_params
         )
-        print(all_tasks)
+        # print(all_tasks)
         # 将任务列表转换为Task对象列表
         tasks = []
         for task in all_tasks:
@@ -403,7 +403,11 @@ async def get_my_tasks(
 
 # 提交已完成的任务。
 @router.post("/api/task/{task_id}/submit", response_model=CommonResponseBool)
-async def submit_task(task_id: int, userId: str = Depends(verify_oauth_token)):
+async def submit_task(
+    task_id: int,
+    task_commit: str = Body(..., embed=True),
+    userId: str = Depends(verify_oauth_token),
+):
     try:
         # 1. 检查任务是否存在
         task_entity = get_entity_by_field(TABLE_NAMES.TASK, "id", task_id)
@@ -437,6 +441,11 @@ async def submit_task(task_id: int, userId: str = Depends(verify_oauth_token)):
         else:
             fields_to_update["status"] = TaskStatus.IN_PROGRESS.value
 
+        # 更新任务提交内容
+        task_comments = task_entity.get("task_comments", [])
+        task_comments.append(task_commit)
+        fields_to_update["task_comments"] = task_comments
+
         update_success = update_entity_fields(
             TABLE_NAMES.TASK,
             task_entity["PartitionKey"],
@@ -449,7 +458,6 @@ async def submit_task(task_id: int, userId: str = Depends(verify_oauth_token)):
 
         if completed_units == total_units:
             # 5. 计算并更新用户的奖励
-            # reward_amount = task_entity.get('reward_per_unit', 0) * task_entity.get('total_units', 0)
             reward_amount = task_entity.get("reward_per_unit", 0)
             # 获取用户当前余额
             user_entity = get_entity_by_field(
